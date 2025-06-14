@@ -6,9 +6,10 @@ import { Tool } from '../types';
 interface ToolGridProps {
   tools: Tool[];
   loading: boolean;
+  onToolClick?: (toolId: string) => void;
 }
 
-const ToolGrid: React.FC<ToolGridProps> = ({ tools, loading }) => {
+const ToolGrid: React.FC<ToolGridProps> = ({ tools, loading, onToolClick }) => {
   if (loading) {
     return (
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
@@ -53,7 +54,7 @@ const ToolGrid: React.FC<ToolGridProps> = ({ tools, loading }) => {
           animate={{ opacity: 1, y: 0 }}
           transition={{ duration: 0.5, delay: index * 0.1 }}
         >
-          <ToolCard tool={tool} />
+          <ToolCard tool={tool} onToolClick={onToolClick} />
         </motion.div>
       ))}
     </div>

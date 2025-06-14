@@ -15,9 +15,10 @@ import { Tool } from '../types';
 
 interface ToolCardProps {
   tool: Tool;
+  onToolClick?: (toolId: string) => void;
 }
 
-const ToolCard: React.FC<ToolCardProps> = ({ tool }) => {
+const ToolCard: React.FC<ToolCardProps> = ({ tool, onToolClick }) => {
   const [isBookmarked, setIsBookmarked] = useState(false);
   const [isLiked, setIsLiked] = useState(false);
 
@@ -37,10 +38,17 @@ const ToolCard: React.FC<ToolCardProps> = ({ tool }) => {
     return num.toString();
   };
 
+  const handleCardClick = () => {
+    if (onToolClick) {
+      onToolClick(tool.id);
+    }
+  };
+
   return (
     <motion.div
       whileHover={{ y: -4 }}
-      className="group bg-white rounded-2xl shadow-sm hover:shadow-xl transition-all duration-300 border border-gray-100 overflow-hidden"
+      className="group bg-white rounded-2xl shadow-sm hover:shadow-xl transition-all duration-300 border border-gray-100 overflow-hidden cursor-pointer"
+      onClick={handleCardClick}
     >
       {/* Image & Actions */}
       <div className="relative">
@@ -57,7 +65,10 @@ const ToolCard: React.FC<ToolCardProps> = ({ tool }) => {
           <motion.button
             whileHover={{ scale: 1.1 }}
             whileTap={{ scale: 0.9 }}
-            onClick={() => setIsBookmarked(!isBookmarked)}
+            onClick={(e) => {
+              e.stopPropagation();
+              setIsBookmarked(!isBookmarked);
+            }}
             className={`p-2 rounded-full backdrop-blur-md border transition-colors ${
               isBookmarked 
                 ? 'bg-primary-600 text-white border-primary-600' 
@@ -69,6 +80,7 @@ const ToolCard: React.FC<ToolCardProps> = ({ tool }) => {
           <motion.button
             whileHover={{ scale: 1.1 }}
             whileTap={{ scale: 0.9 }}
+            onClick={(e) => e.stopPropagation()}
             className="p-2 rounded-full bg-white/80 text-gray-600 border border-white/20 backdrop-blur-md hover:bg-white transition-colors"
           >
             <Share2 className="h-4 w-4" />
@@ -146,7 +158,10 @@ const ToolCard: React.FC<ToolCardProps> = ({ tool }) => {
             <motion.button
               whileHover={{ scale: 1.05 }}
               whileTap={{ scale: 0.95 }}
-              onClick={() => setIsLiked(!isLiked)}
+              onClick={(e) => {
+                e.stopPropagation();
+                setIsLiked(!isLiked);
+              }}
               className={`p-2 rounded-lg transition-colors ${
                 isLiked ? 'text-red-500 bg-red-50' : 'text-gray-400 hover:text-red-500 hover:bg-red-50'
               }`}
@@ -157,6 +172,7 @@ const ToolCard: React.FC<ToolCardProps> = ({ tool }) => {
             <motion.button
               whileHover={{ scale: 1.05 }}
               whileTap={{ scale: 0.95 }}
+              onClick={(e) => e.stopPropagation()}
               className="p-2 text-gray-400 hover:text-primary-600 hover:bg-primary-50 rounded-lg transition-colors"
             >
               <MessageCircle className="h-4 w-4" />
@@ -168,6 +184,7 @@ const ToolCard: React.FC<ToolCardProps> = ({ tool }) => {
               rel="noopener noreferrer"
               whileHover={{ scale: 1.05 }}
               whileTap={{ scale: 0.95 }}
+              onClick={(e) => e.stopPropagation()}
               className="flex items-center space-x-1 bg-primary-600 text-white px-4 py-2 rounded-lg hover:bg-primary-700 transition-colors text-sm font-medium"
             >
               <span>Try Now</span>

@@ -48,3 +48,15 @@ export interface Review {
   date: string;
   helpful: number;
 }
+
+export interface SubmissionData {
+  name: string;
+  description: string;
+  category: string;
+  pricing: 'free' | 'freemium' | 'paid';
+  url: string;
+  image: string;
+  tags: string[];
+  features: string[];
+  contactEmail: string;
+}
