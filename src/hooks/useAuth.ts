@@ -86,7 +86,7 @@ export const useAuth = () => {
       
       // Try to get profile, bookmarks, and reviews with timeout
       const timeoutPromise = new Promise((_, reject) => 
-        setTimeout(() => reject(new Error('Profile load timeout')), 2000)
+        setTimeout(() => reject(new Error('Profile load timeout')), 5000)
       );
       
       const profilePromise = Promise.allSettled([
