@@ -5,11 +5,12 @@ import { categories as mockCategories } from '../data/mockData';
 
 export const useCategories = () => {
   const [categories, setCategories] = useState<Category[]>([]);
-  const [loading, setLoading] = useState(true);
+  const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   const loadCategories = async () => {
     try {
+      console.log('Loading categories...');
       setLoading(true);
       setError(null);
 
@@ -32,6 +33,8 @@ export const useCategories = () => {
         color: category.color
       }));
 
+      console.log('Categories loaded from Supabase:', transformedCategories.length);
+
       // If no data from Supabase, use mock data
       if (transformedCategories.length === 0) {
         console.log('No categories in Supabase, using mock data');
@@ -50,6 +53,7 @@ export const useCategories = () => {
   };
 
   useEffect(() => {
+    console.log('useCategories: Initial load');
     loadCategories();
   }, []);
 

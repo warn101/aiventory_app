@@ -6,11 +6,12 @@ import { mockTools } from '../data/mockData';
 export const useTools = () => {
   const [tools, setTools] = useState<Tool[]>([]);
   const [filteredTools, setFilteredTools] = useState<Tool[]>([]);
-  const [loading, setLoading] = useState(true);
+  const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   const loadTools = async (filters?: FilterState & { search?: string }) => {
     try {
+      console.log('Loading tools with filters:', filters);
       setLoading(true);
       setError(null);
 
@@ -26,8 +27,9 @@ export const useTools = () => {
         console.error('Supabase error:', fetchError);
         // Fallback to mock data if Supabase fails
         console.log('Using mock data as fallback');
+        const filteredMockTools = applyFiltersToMockData(mockTools, filters);
         setTools(mockTools);
-        setFilteredTools(mockTools);
+        setFilteredTools(filteredMockTools);
         setError('Using offline data. Some features may be limited.');
         return;
       }
@@ -49,11 +51,14 @@ export const useTools = () => {
         lastUpdated: tool.updated_at.split('T')[0]
       }));
 
+      console.log('Tools loaded from Supabase:', transformedTools.length);
+
       // If no data from Supabase, use mock data
       if (transformedTools.length === 0) {
         console.log('No data in Supabase, using mock data');
+        const filteredMockTools = applyFiltersToMockData(mockTools, filters);
         setTools(mockTools);
-        setFilteredTools(mockTools);
+        setFilteredTools(filteredMockTools);
       } else {
         setTools(transformedTools);
         setFilteredTools(transformedTools);
@@ -61,25 +66,65 @@ export const useTools = () => {
     } catch (err) {
       console.error('Error loading tools:', err);
       // Fallback to mock data
+      const filteredMockTools = applyFiltersToMockData(mockTools, filters);
       setTools(mockTools);
-      setFilteredTools(mockTools);
+      setFilteredTools(filteredMockTools);
       setError('Connection error. Using offline data.');
     } finally {
       setLoading(false);
     }
   };
 
+  const applyFiltersToMockData = (tools: Tool[], filters?: FilterState & { search?: string }) => {
+    if (!filters) return tools;
+
+    return tools.filter(tool => {
+      // Category filter
+      if (filters.category && filters.category !== 'all' && tool.category !== filters.category) {
+        return false;
+      }
+
+      // Pricing filter
+      if (filters.pricing && filters.pricing !== 'all' && tool.pricing !== filters.pricing) {
+        return false;
+      }
+
+      // Rating filter
+      if (filters.rating && filters.rating > 0 && tool.rating < filters.rating) {
+        return false;
+      }
+
+      // Featured filter
+      if (filters.featured && !tool.featured) {
+        return false;
+      }
+
+      // Search filter
+      if (filters.search) {
+        const searchTerm = filters.search.toLowerCase();
+        const searchableText = `${tool.name} ${tool.description} ${tool.tags.join(' ')}`.toLowerCase();
+        if (!searchableText.includes(searchTerm)) {
+          return false;
+        }
+      }
+
+      return true;
+    });
+  };
+
   const getTool = async (id: string): Promise<Tool | null> => {
     try {
+      console.log('Getting tool:', id);
       const { data, error } = await db.getTool(id);
       
       if (error || !data) {
+        console.log('Tool not found in Supabase, checking mock data');
         // Fallback to mock data
         const mockTool = mockTools.find(tool => tool.id === id);
         return mockTool || null;
       }
 
-      return {
+      const transformedTool: Tool = {
         id: data.id,
         name: data.name,
         description: data.description,
@@ -95,6 +140,9 @@ export const useTools = () => {
         addedDate: data.created_at.split('T')[0],
         lastUpdated: data.updated_at.split('T')[0]
       };
+
+      console.log('Tool loaded from Supabase:', transformedTool);
+      return transformedTool;
     } catch (err) {
       console.error('Error getting tool:', err);
       // Fallback to mock data
@@ -105,6 +153,7 @@ export const useTools = () => {
 
   const createTool = async (toolData: any) => {
     try {
+      console.log('Creating tool:', toolData);
       const { data, error } = await db.createTool({
         name: toolData.name,
         description: toolData.description,
@@ -121,6 +170,7 @@ export const useTools = () => {
         throw error;
       }
 
+      console.log('Tool created successfully');
       // Reload tools to get updated list
       await loadTools();
       
@@ -131,7 +181,9 @@ export const useTools = () => {
     }
   };
 
+  // Load tools on mount
   useEffect(() => {
+    console.log('useTools: Initial load');
     loadTools();
   }, []);
 

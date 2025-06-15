@@ -23,7 +23,7 @@ type Page = 'home' | 'tool-detail' | 'dashboard' | 'profile' | 'submit-tool';
 function App() {
   const { user, loading: authLoading } = useAuth();
   const { tools, filteredTools, loading: toolsLoading, loadTools, getTool, createTool } = useTools();
-  const { categories } = useCategories();
+  const { categories, loading: categoriesLoading } = useCategories();
   
   const [currentPage, setCurrentPage] = useState<Page>('home');
   const [selectedToolId, setSelectedToolId] = useState<string | null>(null);
@@ -38,6 +38,20 @@ function App() {
   });
   const [isAuthModalOpen, setIsAuthModalOpen] = useState(false);
 
+  // Debug logging
+  useEffect(() => {
+    console.log('App State Debug:', {
+      authLoading,
+      toolsLoading,
+      categoriesLoading,
+      toolsCount: tools.length,
+      filteredToolsCount: filteredTools.length,
+      categoriesCount: categories.length,
+      currentPage,
+      user: user ? 'logged in' : 'not logged in'
+    });
+  }, [authLoading, toolsLoading, categoriesLoading, tools, filteredTools, categories, currentPage, user]);
+
   const handleSearch = (query: string) => {
     setSearchQuery(query);
     loadTools({ ...filters, search: query });
@@ -49,13 +63,20 @@ function App() {
   };
 
   const handleToolClick = async (toolId: string) => {
+    console.log('Tool clicked:', toolId);
     setSelectedToolId(toolId);
-    const tool = await getTool(toolId);
-    setSelectedTool(tool);
-    setCurrentPage('tool-detail');
+    try {
+      const tool = await getTool(toolId);
+      console.log('Tool loaded:', tool);
+      setSelectedTool(tool);
+      setCurrentPage('tool-detail');
+    } catch (error) {
+      console.error('Error loading tool:', error);
+    }
   };
 
   const handleNavigation = (page: Page) => {
+    console.log('Navigating to:', page);
     setCurrentPage(page);
     if (page === 'home') {
       setSelectedToolId(null);
@@ -71,19 +92,24 @@ function App() {
   };
 
   const handleToolSubmit = async (toolData: any) => {
-    const { error } = await createTool(toolData);
-    if (!error) {
-      handleNavigation('home');
+    try {
+      const { error } = await createTool(toolData);
+      if (!error) {
+        handleNavigation('home');
+      }
+    } catch (error) {
+      console.error('Error submitting tool:', error);
     }
   };
 
-  // Show loading screen while auth is initializing
+  // Only show loading for auth initialization (very brief)
   if (authLoading) {
+    console.log('Auth loading...');
     return (
       <div className="min-h-screen bg-gradient-to-br from-slate-50 via-blue-50 to-indigo-50 flex items-center justify-center">
         <div className="text-center">
           <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-primary-600 mx-auto mb-4"></div>
-          <p className="text-gray-600">Loading AIventory...</p>
+          <p className="text-gray-600">Initializing AIventory...</p>
         </div>
       </div>
     );
@@ -92,60 +118,69 @@ function App() {
   const renderCurrentPage = () => {
     switch (currentPage) {
       case 'tool-detail':
-        return selectedTool ? (
+        if (!selectedTool) {
+          return (
+            <div className="min-h-screen flex items-center justify-center">
+              <div className="text-center">
+                <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-primary-600 mx-auto mb-4"></div>
+                <p className="text-gray-600">Loading tool details...</p>
+              </div>
+            </div>
+          );
+        }
+        return (
           <ToolDetail 
             tool={selectedTool} 
             onBack={() => handleNavigation('home')}
             currentUser={user}
           />
-        ) : (
-          <div className="min-h-screen flex items-center justify-center">
-            <div className="text-center">
-              <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-primary-600 mx-auto mb-4"></div>
-              <p className="text-gray-600">Loading tool details...</p>
-            </div>
-          </div>
         );
       
       case 'dashboard':
-        return user ? (
+        if (!user) {
+          return (
+            <div className="min-h-screen flex items-center justify-center">
+              <div className="text-center">
+                <p className="text-gray-600 mb-4">Please sign in to access your dashboard</p>
+                <button
+                  onClick={() => setIsAuthModalOpen(true)}
+                  className="bg-primary-600 text-white px-6 py-3 rounded-lg hover:bg-primary-700 transition-colors"
+                >
+                  Sign In
+                </button>
+              </div>
+            </div>
+          );
+        }
+        return (
           <Dashboard 
             user={user}
             tools={tools}
             onToolClick={handleToolClick}
           />
-        ) : (
-          <div className="min-h-screen flex items-center justify-center">
-            <div className="text-center">
-              <p className="text-gray-600 mb-4">Please sign in to access your dashboard</p>
-              <button
-                onClick={() => setIsAuthModalOpen(true)}
-                className="bg-primary-600 text-white px-6 py-3 rounded-lg hover:bg-primary-700 transition-colors"
-              >
-                Sign In
-              </button>
-            </div>
-          </div>
         );
       
       case 'profile':
-        return user ? (
+        if (!user) {
+          return (
+            <div className="min-h-screen flex items-center justify-center">
+              <div className="text-center">
+                <p className="text-gray-600 mb-4">Please sign in to access your profile</p>
+                <button
+                  onClick={() => setIsAuthModalOpen(true)}
+                  className="bg-primary-600 text-white px-6 py-3 rounded-lg hover:bg-primary-700 transition-colors"
+                >
+                  Sign In
+                </button>
+              </div>
+            </div>
+          );
+        }
+        return (
           <Profile 
             user={user}
             onUpdateUser={() => {}} // This will be handled by the useAuth hook
           />
-        ) : (
-          <div className="min-h-screen flex items-center justify-center">
-            <div className="text-center">
-              <p className="text-gray-600 mb-4">Please sign in to access your profile</p>
-              <button
-                onClick={() => setIsAuthModalOpen(true)}
-                className="bg-primary-600 text-white px-6 py-3 rounded-lg hover:bg-primary-700 transition-colors"
-              >
-                Sign In
-              </button>
-            </div>
-          </div>
         );
       
       case 'submit-tool':
