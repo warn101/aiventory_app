@@ -1,69 +1,35 @@
 /*
-  # Complete AIventory Database Schema and Initial Data
+  # Complete AIventory Database Setup
 
   1. New Tables
-    - `categories`
-      - `id` (text, primary key)
-      - `name` (text)
-      - `icon` (text)
-      - `color` (text)
-      - `tools_count` (integer, default 0)
-      - `created_at` (timestamp)
-    
-    - `tools`
-      - `id` (uuid, primary key)
-      - `name` (text)
-      - `description` (text)
-      - `category` (text, foreign key)
-      - `pricing` (enum: free, freemium, paid)
-      - `rating` (numeric, default 0)
-      - `reviews_count` (integer, default 0)
-      - `tags` (text array)
-      - `image_url` (text)
-      - `website_url` (text)
-      - `featured` (boolean, default false)
-      - `verified` (boolean, default false)
-      - `created_at` (timestamp)
-      - `updated_at` (timestamp)
-    
-    - `profiles`
-      - `id` (uuid, primary key, references auth.users)
-      - `name` (text)
-      - `email` (text)
-      - `avatar_url` (text)
-      - `bio` (text)
-      - `location` (text)
-      - `website` (text)
-      - `created_at` (timestamp)
-      - `updated_at` (timestamp)
-    
-    - `bookmarks`
-      - `id` (uuid, primary key)
-      - `user_id` (uuid, foreign key)
-      - `tool_id` (uuid, foreign key)
-      - `created_at` (timestamp)
-    
-    - `reviews`
-      - `id` (uuid, primary key)
-      - `user_id` (uuid, foreign key)
-      - `tool_id` (uuid, foreign key)
-      - `rating` (integer, 1-5)
-      - `comment` (text)
-      - `helpful_count` (integer, default 0)
-      - `created_at` (timestamp)
-      - `updated_at` (timestamp)
+    - `categories` - Tool categories with icons and colors
+    - `tools` - AI tools with all metadata
+    - `profiles` - User profiles extending auth.users
+    - `bookmarks` - User bookmarks for tools
+    - `reviews` - User reviews and ratings for tools
 
   2. Security
     - Enable RLS on all tables
-    - Add policies for authenticated users to manage their own data
-    - Add policies for public read access to tools and categories
+    - Add policies for public read access where appropriate
+    - Add policies for authenticated user operations
 
-  3. Initial Data
+  3. Functions & Triggers
+    - Auto-create user profiles on signup
+    - Auto-update tool ratings when reviews change
+    - Auto-update category tool counts
+    - Full-text search capabilities
+
+  4. Initial Data
     - Insert categories and sample tools
 */
 
 -- Create custom types
-CREATE TYPE pricing_type AS ENUM ('free', 'freemium', 'paid');
+DO $$ 
+BEGIN
+  IF NOT EXISTS (SELECT 1 FROM pg_type WHERE typname = 'pricing_type') THEN
+    CREATE TYPE pricing_type AS ENUM ('free', 'freemium', 'paid');
+  END IF;
+END $$;
 
 -- Categories table
 CREATE TABLE IF NOT EXISTS categories (
@@ -80,7 +46,7 @@ CREATE TABLE IF NOT EXISTS tools (
   id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
   name text NOT NULL,
   description text NOT NULL,
-  category text NOT NULL REFERENCES categories(id),
+  category text NOT NULL,
   pricing pricing_type DEFAULT 'free',
   rating numeric(3,2) DEFAULT 0 CHECK (rating >= 0 AND rating <= 5),
   reviews_count integer DEFAULT 0,
@@ -95,7 +61,7 @@ CREATE TABLE IF NOT EXISTS tools (
 
 -- Profiles table (extends auth.users)
 CREATE TABLE IF NOT EXISTS profiles (
-  id uuid PRIMARY KEY REFERENCES auth.users(id) ON DELETE CASCADE,
+  id uuid PRIMARY KEY,
   name text NOT NULL,
   email text NOT NULL,
   avatar_url text,
@@ -109,24 +75,100 @@ CREATE TABLE IF NOT EXISTS profiles (
 -- Bookmarks table
 CREATE TABLE IF NOT EXISTS bookmarks (
   id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
-  user_id uuid NOT NULL REFERENCES profiles(id) ON DELETE CASCADE,
-  tool_id uuid NOT NULL REFERENCES tools(id) ON DELETE CASCADE,
-  created_at timestamptz DEFAULT now(),
-  UNIQUE(user_id, tool_id)
+  user_id uuid NOT NULL,
+  tool_id uuid NOT NULL,
+  created_at timestamptz DEFAULT now()
 );
 
 -- Reviews table
 CREATE TABLE IF NOT EXISTS reviews (
   id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
-  user_id uuid NOT NULL REFERENCES profiles(id) ON DELETE CASCADE,
-  tool_id uuid NOT NULL REFERENCES tools(id) ON DELETE CASCADE,
+  user_id uuid NOT NULL,
+  tool_id uuid NOT NULL,
   rating integer NOT NULL CHECK (rating >= 1 AND rating <= 5),
   comment text NOT NULL,
   helpful_count integer DEFAULT 0,
   created_at timestamptz DEFAULT now(),
-  updated_at timestamptz DEFAULT now(),
-  UNIQUE(user_id, tool_id)
+  updated_at timestamptz DEFAULT now()
 );
+
+-- Add foreign key constraints safely
+DO $$
+BEGIN
+  -- Tools category foreign key
+  IF NOT EXISTS (
+    SELECT 1 FROM information_schema.table_constraints 
+    WHERE constraint_name = 'tools_category_fkey' AND table_name = 'tools'
+  ) THEN
+    ALTER TABLE tools ADD CONSTRAINT tools_category_fkey 
+    FOREIGN KEY (category) REFERENCES categories(id);
+  END IF;
+
+  -- Profiles foreign key
+  IF NOT EXISTS (
+    SELECT 1 FROM information_schema.table_constraints 
+    WHERE constraint_name = 'profiles_id_fkey' AND table_name = 'profiles'
+  ) THEN
+    ALTER TABLE profiles ADD CONSTRAINT profiles_id_fkey 
+    FOREIGN KEY (id) REFERENCES auth.users(id) ON DELETE CASCADE;
+  END IF;
+
+  -- Bookmarks foreign keys
+  IF NOT EXISTS (
+    SELECT 1 FROM information_schema.table_constraints 
+    WHERE constraint_name = 'bookmarks_user_id_fkey' AND table_name = 'bookmarks'
+  ) THEN
+    ALTER TABLE bookmarks ADD CONSTRAINT bookmarks_user_id_fkey 
+    FOREIGN KEY (user_id) REFERENCES profiles(id) ON DELETE CASCADE;
+  END IF;
+
+  IF NOT EXISTS (
+    SELECT 1 FROM information_schema.table_constraints 
+    WHERE constraint_name = 'bookmarks_tool_id_fkey' AND table_name = 'bookmarks'
+  ) THEN
+    ALTER TABLE bookmarks ADD CONSTRAINT bookmarks_tool_id_fkey 
+    FOREIGN KEY (tool_id) REFERENCES tools(id) ON DELETE CASCADE;
+  END IF;
+
+  -- Reviews foreign keys
+  IF NOT EXISTS (
+    SELECT 1 FROM information_schema.table_constraints 
+    WHERE constraint_name = 'reviews_user_id_fkey' AND table_name = 'reviews'
+  ) THEN
+    ALTER TABLE reviews ADD CONSTRAINT reviews_user_id_fkey 
+    FOREIGN KEY (user_id) REFERENCES profiles(id) ON DELETE CASCADE;
+  END IF;
+
+  IF NOT EXISTS (
+    SELECT 1 FROM information_schema.table_constraints 
+    WHERE constraint_name = 'reviews_tool_id_fkey' AND table_name = 'reviews'
+  ) THEN
+    ALTER TABLE reviews ADD CONSTRAINT reviews_tool_id_fkey 
+    FOREIGN KEY (tool_id) REFERENCES tools(id) ON DELETE CASCADE;
+  END IF;
+END $$;
+
+-- Add unique constraints safely
+DO $$
+BEGIN
+  -- Bookmarks unique constraint
+  IF NOT EXISTS (
+    SELECT 1 FROM information_schema.table_constraints 
+    WHERE constraint_name = 'bookmarks_user_id_tool_id_key' AND table_name = 'bookmarks'
+  ) THEN
+    ALTER TABLE bookmarks ADD CONSTRAINT bookmarks_user_id_tool_id_key 
+    UNIQUE(user_id, tool_id);
+  END IF;
+
+  -- Reviews unique constraint
+  IF NOT EXISTS (
+    SELECT 1 FROM information_schema.table_constraints 
+    WHERE constraint_name = 'reviews_user_id_tool_id_key' AND table_name = 'reviews'
+  ) THEN
+    ALTER TABLE reviews ADD CONSTRAINT reviews_user_id_tool_id_key 
+    UNIQUE(user_id, tool_id);
+  END IF;
+END $$;
 
 -- Create indexes for better performance
 CREATE INDEX IF NOT EXISTS idx_tools_category ON tools(category);
@@ -137,7 +179,7 @@ CREATE INDEX IF NOT EXISTS idx_bookmarks_user_id ON bookmarks(user_id);
 CREATE INDEX IF NOT EXISTS idx_reviews_tool_id ON reviews(tool_id);
 CREATE INDEX IF NOT EXISTS idx_reviews_user_id ON reviews(user_id);
 
--- Create immutable function for full-text search
+-- Create full-text search function
 CREATE OR REPLACE FUNCTION tools_search_vector(name text, description text, tags text[])
 RETURNS tsvector AS $$
 BEGIN
@@ -145,7 +187,7 @@ BEGIN
 END;
 $$ LANGUAGE plpgsql IMMUTABLE;
 
--- Create full-text search index using the immutable function
+-- Create full-text search index
 CREATE INDEX IF NOT EXISTS idx_tools_search ON tools USING gin(tools_search_vector(name, description, tags));
 
 -- Enable Row Level Security
@@ -155,6 +197,33 @@ ALTER TABLE profiles ENABLE ROW LEVEL SECURITY;
 ALTER TABLE bookmarks ENABLE ROW LEVEL SECURITY;
 ALTER TABLE reviews ENABLE ROW LEVEL SECURITY;
 
+-- Drop existing policies to avoid conflicts
+DO $$
+BEGIN
+  -- Categories policies
+  DROP POLICY IF EXISTS "Categories are viewable by everyone" ON categories;
+  
+  -- Tools policies
+  DROP POLICY IF EXISTS "Tools are viewable by everyone" ON tools;
+  
+  -- Profiles policies
+  DROP POLICY IF EXISTS "Users can view all profiles" ON profiles;
+  DROP POLICY IF EXISTS "Users can update own profile" ON profiles;
+  DROP POLICY IF EXISTS "Users can insert own profile" ON profiles;
+  
+  -- Bookmarks policies
+  DROP POLICY IF EXISTS "Users can view own bookmarks" ON bookmarks;
+  DROP POLICY IF EXISTS "Users can insert own bookmarks" ON bookmarks;
+  DROP POLICY IF EXISTS "Users can delete own bookmarks" ON bookmarks;
+  
+  -- Reviews policies
+  DROP POLICY IF EXISTS "Reviews are viewable by everyone" ON reviews;
+  DROP POLICY IF EXISTS "Users can insert own reviews" ON reviews;
+  DROP POLICY IF EXISTS "Users can update own reviews" ON reviews;
+  DROP POLICY IF EXISTS "Users can delete own reviews" ON reviews;
+END $$;
+
+-- Create policies
 -- Categories policies (public read)
 CREATE POLICY "Categories are viewable by everyone"
   ON categories
@@ -247,12 +316,6 @@ BEGIN
 END;
 $$ LANGUAGE plpgsql SECURITY DEFINER;
 
--- Trigger to create profile on user signup
-DROP TRIGGER IF EXISTS on_auth_user_created ON auth.users;
-CREATE TRIGGER on_auth_user_created
-  AFTER INSERT ON auth.users
-  FOR EACH ROW EXECUTE FUNCTION public.handle_new_user();
-
 -- Function to update tools rating when reviews change
 CREATE OR REPLACE FUNCTION update_tool_rating()
 RETURNS trigger AS $$
@@ -275,12 +338,6 @@ BEGIN
   RETURN COALESCE(NEW, OLD);
 END;
 $$ LANGUAGE plpgsql SECURITY DEFINER;
-
--- Triggers to update tool rating
-DROP TRIGGER IF EXISTS on_review_change ON reviews;
-CREATE TRIGGER on_review_change
-  AFTER INSERT OR UPDATE OR DELETE ON reviews
-  FOR EACH ROW EXECUTE FUNCTION update_tool_rating();
 
 -- Function to update category tools count
 CREATE OR REPLACE FUNCTION update_category_count()
@@ -308,8 +365,20 @@ BEGIN
 END;
 $$ LANGUAGE plpgsql SECURITY DEFINER;
 
--- Trigger to update category count
+-- Drop existing triggers to avoid conflicts
+DROP TRIGGER IF EXISTS on_auth_user_created ON auth.users;
+DROP TRIGGER IF EXISTS on_review_change ON reviews;
 DROP TRIGGER IF EXISTS on_tool_category_change ON tools;
+
+-- Create triggers
+CREATE TRIGGER on_auth_user_created
+  AFTER INSERT ON auth.users
+  FOR EACH ROW EXECUTE FUNCTION public.handle_new_user();
+
+CREATE TRIGGER on_review_change
+  AFTER INSERT OR UPDATE OR DELETE ON reviews
+  FOR EACH ROW EXECUTE FUNCTION update_tool_rating();
+
 CREATE TRIGGER on_tool_category_change
   AFTER INSERT OR UPDATE OR DELETE ON tools
   FOR EACH ROW EXECUTE FUNCTION update_category_count();
