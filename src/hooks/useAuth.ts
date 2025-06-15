@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react';
 import { User } from '@supabase/supabase-js';
 import { auth, db } from '../lib/supabase';
+import { sendWelcomeEmail } from '../lib/email';
 
 interface AuthUser {
   id: string;
@@ -31,6 +32,19 @@ export const useAuth = () => {
     const { data: { subscription } } = auth.onAuthStateChange(async (event, session) => {
       if (session?.user) {
         await loadUserProfile(session.user);
+        
+        // Send welcome email for new signups
+        if (event === 'SIGNED_UP') {
+          try {
+            await sendWelcomeEmail(
+              session.user.email!,
+              session.user.user_metadata?.name || session.user.email?.split('@')[0] || 'User'
+            );
+          } catch (error) {
+            console.error('Failed to send welcome email:', error);
+            // Don't block the signup process if email fails
+          }
+        }
       } else {
         setUser(null);
       }

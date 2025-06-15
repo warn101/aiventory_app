@@ -10,6 +10,7 @@ import {
   Check,
   AlertCircle
 } from 'lucide-react';
+import ImageUpload from '../components/ImageUpload';
 
 interface SubmitToolProps {
   onSubmit: (toolData: any) => void;
@@ -52,6 +53,13 @@ const SubmitTool: React.FC<SubmitToolProps> = ({ onSubmit }) => {
     setFormData({
       ...formData,
       [e.target.name]: e.target.value
+    });
+  };
+
+  const handleImageUpload = (imageUrl: string) => {
+    setFormData({
+      ...formData,
+      image: imageUrl
     });
   };
 
@@ -103,6 +111,19 @@ const SubmitTool: React.FC<SubmitToolProps> = ({ onSubmit }) => {
   const prevStep = () => {
     if (currentStep > 1) {
       setCurrentStep(currentStep - 1);
+    }
+  };
+
+  const isStepValid = () => {
+    switch (currentStep) {
+      case 1:
+        return formData.name && formData.description && formData.category && formData.url;
+      case 2:
+        return true; // Optional fields
+      case 3:
+        return true; // Review step
+      default:
+        return false;
     }
   };
 
@@ -251,21 +272,14 @@ const SubmitTool: React.FC<SubmitToolProps> = ({ onSubmit }) => {
               <div className="space-y-6">
                 <div>
                   <label className="block text-sm font-medium text-gray-700 mb-2">
-                    Tool Image URL
+                    Tool Image
                   </label>
-                  <div className="relative">
-                    <ImageIcon className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400 h-5 w-5" />
-                    <input
-                      type="url"
-                      name="image"
-                      value={formData.image}
-                      onChange={handleInputChange}
-                      className="w-full pl-10 pr-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-primary-500"
-                      placeholder="https://example.com/image.jpg"
-                    />
-                  </div>
-                  <p className="text-sm text-gray-500 mt-1">
-                    Provide a URL to an image that represents your tool (optional)
+                  <ImageUpload
+                    onImageUpload={handleImageUpload}
+                    currentImage={formData.image}
+                  />
+                  <p className="text-sm text-gray-500 mt-2">
+                    Upload an image that represents your tool. This will be displayed in the tool listing.
                   </p>
                 </div>
 
@@ -400,6 +414,16 @@ const SubmitTool: React.FC<SubmitToolProps> = ({ onSubmit }) => {
                       <label className="text-sm font-medium text-gray-500">Website</label>
                       <p className="text-gray-900">{formData.url}</p>
                     </div>
+                    {formData.image && (
+                      <div>
+                        <label className="text-sm font-medium text-gray-500">Image</label>
+                        <img
+                          src={formData.image}
+                          alt="Tool preview"
+                          className="w-32 h-20 object-cover rounded-lg border border-gray-200"
+                        />
+                      </div>
+                    )}
                   </div>
                   
                   <div className="space-y-4">
@@ -445,7 +469,8 @@ const SubmitTool: React.FC<SubmitToolProps> = ({ onSubmit }) => {
                 <button
                   type="button"
                   onClick={nextStep}
-                  className="px-6 py-3 bg-primary-600 text-white rounded-lg hover:bg-primary-700 transition-colors"
+                  disabled={!isStepValid()}
+                  className="px-6 py-3 bg-primary-600 text-white rounded-lg hover:bg-primary-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
                 >
                   Next
                 </button>
