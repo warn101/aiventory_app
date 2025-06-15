@@ -92,3 +92,4 @@ Description: Create a reviews table in Supabase to store user reviews and rating
 Deploy the frontend application to Netlify for global content delivery.
 
 Netlify Deployment:
+Description: Configure Netlify to deploy your React application. Netlify will automatically handle CDN integration, ensuring fast loading times for your static assets.
