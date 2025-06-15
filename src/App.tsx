@@ -37,6 +37,17 @@ function App() {
     featured: false
   });
   const [isAuthModalOpen, setIsAuthModalOpen] = useState(false);
+  const [appReady, setAppReady] = useState(false);
+
+  // Set app as ready after a short delay to prevent infinite loading
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      console.log('App: Setting ready state to true');
+      setAppReady(true);
+    }, 1000); // 1 second max wait
+
+    return () => clearTimeout(timer);
+  }, []);
 
   // Debug logging
   useEffect(() => {
@@ -44,13 +55,14 @@ function App() {
       authLoading,
       toolsLoading,
       categoriesLoading,
+      appReady,
       toolsCount: tools.length,
       filteredToolsCount: filteredTools.length,
       categoriesCount: categories.length,
       currentPage,
       user: user ? 'logged in' : 'not logged in'
     });
-  }, [authLoading, toolsLoading, categoriesLoading, tools, filteredTools, categories, currentPage, user]);
+  }, [authLoading, toolsLoading, categoriesLoading, appReady, tools, filteredTools, categories, currentPage, user]);
 
   const handleSearch = (query: string) => {
     setSearchQuery(query);
@@ -102,18 +114,20 @@ function App() {
     }
   };
 
-  // Only show loading for auth initialization (very brief)
-  if (authLoading) {
-    console.log('Auth loading...');
+  // Show loading only if auth is still loading AND app is not ready
+  if (authLoading && !appReady) {
+    console.log('App: Showing loading screen');
     return (
       <div className="min-h-screen bg-gradient-to-br from-slate-50 via-blue-50 to-indigo-50 flex items-center justify-center">
         <div className="text-center">
           <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-primary-600 mx-auto mb-4"></div>
-          <p className="text-gray-600">Initializing AIventory...</p>
+          <p className="text-gray-600">Loading AIventory...</p>
         </div>
       </div>
     );
   }
+
+  console.log('App: Rendering main content');
 
   const renderCurrentPage = () => {
     switch (currentPage) {

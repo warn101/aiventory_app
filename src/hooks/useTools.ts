@@ -4,18 +4,23 @@ import { Tool, FilterState } from '../types';
 import { mockTools } from '../data/mockData';
 
 export const useTools = () => {
-  const [tools, setTools] = useState<Tool[]>([]);
-  const [filteredTools, setFilteredTools] = useState<Tool[]>([]);
-  const [loading, setLoading] = useState(false);
+  const [tools, setTools] = useState<Tool[]>(mockTools); // Start with mock data
+  const [filteredTools, setFilteredTools] = useState<Tool[]>(mockTools);
+  const [loading, setLoading] = useState(false); // Don't start loading
   const [error, setError] = useState<string | null>(null);
 
   const loadTools = async (filters?: FilterState & { search?: string }) => {
     try {
-      console.log('Loading tools with filters:', filters);
+      console.log('Tools: Loading tools with filters:', filters);
       setLoading(true);
       setError(null);
 
-      const { data, error: fetchError } = await db.getTools({
+      // Try to load from Supabase with timeout
+      const timeoutPromise = new Promise((_, reject) => 
+        setTimeout(() => reject(new Error('Tools load timeout')), 3000)
+      );
+
+      const toolsPromise = db.getTools({
         category: filters?.category,
         pricing: filters?.pricing,
         rating: filters?.rating,
@@ -23,10 +28,11 @@ export const useTools = () => {
         search: filters?.search
       });
 
+      const { data, error: fetchError } = await Promise.race([toolsPromise, timeoutPromise]) as any;
+
       if (fetchError) {
-        console.error('Supabase error:', fetchError);
-        // Fallback to mock data if Supabase fails
-        console.log('Using mock data as fallback');
+        console.error('Tools: Supabase error:', fetchError);
+        // Use mock data with filters applied
         const filteredMockTools = applyFiltersToMockData(mockTools, filters);
         setTools(mockTools);
         setFilteredTools(filteredMockTools);
@@ -34,7 +40,7 @@ export const useTools = () => {
         return;
       }
 
-      const transformedTools: Tool[] = (data || []).map(tool => ({
+      const transformedTools: Tool[] = (data || []).map((tool: any) => ({
         id: tool.id,
         name: tool.name,
         description: tool.description,
@@ -51,11 +57,10 @@ export const useTools = () => {
         lastUpdated: tool.updated_at.split('T')[0]
       }));
 
-      console.log('Tools loaded from Supabase:', transformedTools.length);
+      console.log('Tools: Loaded from Supabase:', transformedTools.length);
 
-      // If no data from Supabase, use mock data
       if (transformedTools.length === 0) {
-        console.log('No data in Supabase, using mock data');
+        console.log('Tools: No data in Supabase, using mock data');
         const filteredMockTools = applyFiltersToMockData(mockTools, filters);
         setTools(mockTools);
         setFilteredTools(filteredMockTools);
@@ -64,8 +69,8 @@ export const useTools = () => {
         setFilteredTools(transformedTools);
       }
     } catch (err) {
-      console.error('Error loading tools:', err);
-      // Fallback to mock data
+      console.error('Tools: Error loading tools:', err);
+      // Always fall back to mock data
       const filteredMockTools = applyFiltersToMockData(mockTools, filters);
       setTools(mockTools);
       setFilteredTools(filteredMockTools);
@@ -114,12 +119,19 @@ export const useTools = () => {
 
   const getTool = async (id: string): Promise<Tool | null> => {
     try {
-      console.log('Getting tool:', id);
-      const { data, error } = await db.getTool(id);
+      console.log('Tools: Getting tool:', id);
+      
+      // Try Supabase first with timeout
+      const timeoutPromise = new Promise((_, reject) => 
+        setTimeout(() => reject(new Error('Get tool timeout')), 2000)
+      );
+      
+      const toolPromise = db.getTool(id);
+      
+      const { data, error } = await Promise.race([toolPromise, timeoutPromise]) as any;
       
       if (error || !data) {
-        console.log('Tool not found in Supabase, checking mock data');
-        // Fallback to mock data
+        console.log('Tools: Tool not found in Supabase, checking mock data');
         const mockTool = mockTools.find(tool => tool.id === id);
         return mockTool || null;
       }
@@ -141,11 +153,10 @@ export const useTools = () => {
         lastUpdated: data.updated_at.split('T')[0]
       };
 
-      console.log('Tool loaded from Supabase:', transformedTool);
+      console.log('Tools: Tool loaded from Supabase:', transformedTool);
       return transformedTool;
     } catch (err) {
-      console.error('Error getting tool:', err);
-      // Fallback to mock data
+      console.error('Tools: Error getting tool:', err);
       const mockTool = mockTools.find(tool => tool.id === id);
       return mockTool || null;
     }
@@ -153,7 +164,7 @@ export const useTools = () => {
 
   const createTool = async (toolData: any) => {
     try {
-      console.log('Creating tool:', toolData);
+      console.log('Tools: Creating tool:', toolData);
       const { data, error } = await db.createTool({
         name: toolData.name,
         description: toolData.description,
@@ -170,21 +181,21 @@ export const useTools = () => {
         throw error;
       }
 
-      console.log('Tool created successfully');
+      console.log('Tools: Tool created successfully');
       // Reload tools to get updated list
       await loadTools();
       
       return { data, error: null };
     } catch (err) {
-      console.error('Error creating tool:', err);
+      console.error('Tools: Error creating tool:', err);
       return { data: null, error: err instanceof Error ? err.message : 'Failed to create tool' };
     }
   };
 
-  // Load tools on mount
+  // Load tools on mount but don't block UI
   useEffect(() => {
-    console.log('useTools: Initial load');
-    loadTools();
+    console.log('Tools: Initial load (background)');
+    loadTools(); // This runs in background, UI shows mock data immediately
   }, []);
 
   return {
