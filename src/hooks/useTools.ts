@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react';
 import { db } from '../lib/supabase';
 import { Tool, FilterState } from '../types';
+import { mockTools } from '../data/mockData';
 
 export const useTools = () => {
   const [tools, setTools] = useState<Tool[]>([]);
@@ -22,7 +23,13 @@ export const useTools = () => {
       });
 
       if (fetchError) {
-        throw fetchError;
+        console.error('Supabase error:', fetchError);
+        // Fallback to mock data if Supabase fails
+        console.log('Using mock data as fallback');
+        setTools(mockTools);
+        setFilteredTools(mockTools);
+        setError('Using offline data. Some features may be limited.');
+        return;
       }
 
       const transformedTools: Tool[] = (data || []).map(tool => ({
@@ -42,11 +49,21 @@ export const useTools = () => {
         lastUpdated: tool.updated_at.split('T')[0]
       }));
 
-      setTools(transformedTools);
-      setFilteredTools(transformedTools);
+      // If no data from Supabase, use mock data
+      if (transformedTools.length === 0) {
+        console.log('No data in Supabase, using mock data');
+        setTools(mockTools);
+        setFilteredTools(mockTools);
+      } else {
+        setTools(transformedTools);
+        setFilteredTools(transformedTools);
+      }
     } catch (err) {
       console.error('Error loading tools:', err);
-      setError(err instanceof Error ? err.message : 'Failed to load tools');
+      // Fallback to mock data
+      setTools(mockTools);
+      setFilteredTools(mockTools);
+      setError('Connection error. Using offline data.');
     } finally {
       setLoading(false);
     }
@@ -57,7 +74,9 @@ export const useTools = () => {
       const { data, error } = await db.getTool(id);
       
       if (error || !data) {
-        return null;
+        // Fallback to mock data
+        const mockTool = mockTools.find(tool => tool.id === id);
+        return mockTool || null;
       }
 
       return {
@@ -78,7 +97,9 @@ export const useTools = () => {
       };
     } catch (err) {
       console.error('Error getting tool:', err);
-      return null;
+      // Fallback to mock data
+      const mockTool = mockTools.find(tool => tool.id === id);
+      return mockTool || null;
     }
   };
 

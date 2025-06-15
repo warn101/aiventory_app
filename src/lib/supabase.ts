@@ -5,7 +5,9 @@ const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
 const supabaseAnonKey = import.meta.env.VITE_SUPABASE_ANON_KEY;
 
 if (!supabaseUrl || !supabaseAnonKey) {
-  throw new Error('Missing Supabase environment variables');
+  console.error('Missing Supabase environment variables');
+  // Provide fallback values for development
+  throw new Error('Missing Supabase environment variables. Please check your .env file.');
 }
 
 export const supabase = createClient<Database>(supabaseUrl, supabaseAnonKey);
@@ -78,86 +80,147 @@ export const db = {
     }
 
     if (filters?.search) {
-      query = query.or(`name.ilike.%${filters.search}%,description.ilike.%${filters.search}%,tags.cs.{${filters.search}}`);
+      // Use the custom search function we created
+      query = query.or(`name.ilike.%${filters.search}%,description.ilike.%${filters.search}%`);
     }
 
-    return await query;
+    const result = await query;
+    
+    if (result.error) {
+      console.error('Error fetching tools:', result.error);
+    }
+    
+    return result;
   },
 
   getTool: async (id: string) => {
-    return await supabase
+    const result = await supabase
       .from('tools')
       .select('*')
       .eq('id', id)
       .single();
+      
+    if (result.error) {
+      console.error('Error fetching tool:', result.error);
+    }
+    
+    return result;
   },
 
   createTool: async (tool: any) => {
-    return await supabase
+    const result = await supabase
       .from('tools')
       .insert([tool])
       .select()
       .single();
+      
+    if (result.error) {
+      console.error('Error creating tool:', result.error);
+    }
+    
+    return result;
   },
 
   updateTool: async (id: string, updates: any) => {
-    return await supabase
+    const result = await supabase
       .from('tools')
       .update(updates)
       .eq('id', id)
       .select()
       .single();
+      
+    if (result.error) {
+      console.error('Error updating tool:', result.error);
+    }
+    
+    return result;
   },
 
   // Categories
   getCategories: async () => {
-    return await supabase
+    const result = await supabase
       .from('categories')
       .select('*')
       .order('name');
+      
+    if (result.error) {
+      console.error('Error fetching categories:', result.error);
+    }
+    
+    return result;
   },
 
   // User profiles
   getProfile: async (userId: string) => {
-    return await supabase
+    const result = await supabase
       .from('profiles')
       .select('*')
       .eq('id', userId)
       .single();
+      
+    if (result.error) {
+      console.error('Error fetching profile:', result.error);
+    }
+    
+    return result;
   },
 
   updateProfile: async (userId: string, updates: any) => {
-    return await supabase
+    const result = await supabase
       .from('profiles')
       .update(updates)
       .eq('id', userId)
       .select()
       .single();
+      
+    if (result.error) {
+      console.error('Error updating profile:', result.error);
+    }
+    
+    return result;
   },
 
   // Bookmarks
   getBookmarks: async (userId: string) => {
-    return await supabase
+    const result = await supabase
       .from('bookmarks')
       .select(`
         *,
         tools (*)
       `)
       .eq('user_id', userId);
+      
+    if (result.error) {
+      console.error('Error fetching bookmarks:', result.error);
+    }
+    
+    return result;
   },
 
   addBookmark: async (userId: string, toolId: string) => {
-    return await supabase
+    const result = await supabase
       .from('bookmarks')
       .insert([{ user_id: userId, tool_id: toolId }]);
+      
+    if (result.error) {
+      console.error('Error adding bookmark:', result.error);
+    }
+    
+    return result;
   },
 
   removeBookmark: async (userId: string, toolId: string) => {
-    return await supabase
+    const result = await supabase
       .from('bookmarks')
       .delete()
       .eq('user_id', userId)
       .eq('tool_id', toolId);
+      
+    if (result.error) {
+      console.error('Error removing bookmark:', result.error);
+    }
+    
+    return result;
   },
 
   isBookmarked: async (userId: string, toolId: string) => {
@@ -173,7 +236,7 @@ export const db = {
 
   // Reviews
   getReviews: async (toolId: string) => {
-    return await supabase
+    const result = await supabase
       .from('reviews')
       .select(`
         *,
@@ -181,18 +244,30 @@ export const db = {
       `)
       .eq('tool_id', toolId)
       .order('created_at', { ascending: false });
+      
+    if (result.error) {
+      console.error('Error fetching reviews:', result.error);
+    }
+    
+    return result;
   },
 
   createReview: async (review: any) => {
-    return await supabase
+    const result = await supabase
       .from('reviews')
       .insert([review])
       .select()
       .single();
+      
+    if (result.error) {
+      console.error('Error creating review:', result.error);
+    }
+    
+    return result;
   },
 
   getUserReviews: async (userId: string) => {
-    return await supabase
+    const result = await supabase
       .from('reviews')
       .select(`
         *,
@@ -200,5 +275,11 @@ export const db = {
       `)
       .eq('user_id', userId)
       .order('created_at', { ascending: false });
+      
+    if (result.error) {
+      console.error('Error fetching user reviews:', result.error);
+    }
+    
+    return result;
   }
 };

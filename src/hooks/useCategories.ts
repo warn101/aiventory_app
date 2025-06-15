@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react';
 import { db } from '../lib/supabase';
 import { Category } from '../types';
+import { categories as mockCategories } from '../data/mockData';
 
 export const useCategories = () => {
   const [categories, setCategories] = useState<Category[]>([]);
@@ -15,7 +16,12 @@ export const useCategories = () => {
       const { data, error: fetchError } = await db.getCategories();
 
       if (fetchError) {
-        throw fetchError;
+        console.error('Supabase error:', fetchError);
+        // Fallback to mock data
+        console.log('Using mock categories as fallback');
+        setCategories(mockCategories);
+        setError('Using offline data. Some features may be limited.');
+        return;
       }
 
       const transformedCategories: Category[] = (data || []).map(category => ({
@@ -26,10 +32,18 @@ export const useCategories = () => {
         color: category.color
       }));
 
-      setCategories(transformedCategories);
+      // If no data from Supabase, use mock data
+      if (transformedCategories.length === 0) {
+        console.log('No categories in Supabase, using mock data');
+        setCategories(mockCategories);
+      } else {
+        setCategories(transformedCategories);
+      }
     } catch (err) {
       console.error('Error loading categories:', err);
-      setError(err instanceof Error ? err.message : 'Failed to load categories');
+      // Fallback to mock data
+      setCategories(mockCategories);
+      setError('Connection error. Using offline data.');
     } finally {
       setLoading(false);
     }
