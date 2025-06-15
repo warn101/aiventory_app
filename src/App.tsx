@@ -13,16 +13,21 @@ import Dashboard from './pages/Dashboard';
 import Profile from './pages/Profile';
 import SubmitTool from './pages/SubmitTool';
 import AuthModal from './components/AuthModal';
-import { mockTools } from './data/mockData';
-import { Tool, Category, FilterState, User } from './types';
+import { FilterState } from './types';
+import { useAuth } from './hooks/useAuth';
+import { useTools } from './hooks/useTools';
+import { useCategories } from './hooks/useCategories';
 
 type Page = 'home' | 'tool-detail' | 'dashboard' | 'profile' | 'submit-tool';
 
 function App() {
+  const { user, loading: authLoading } = useAuth();
+  const { tools, filteredTools, loading: toolsLoading, loadTools, getTool, createTool } = useTools();
+  const { categories } = useCategories();
+  
   const [currentPage, setCurrentPage] = useState<Page>('home');
   const [selectedToolId, setSelectedToolId] = useState<string | null>(null);
-  const [tools, setTools] = useState<Tool[]>(mockTools);
-  const [filteredTools, setFilteredTools] = useState<Tool[]>(mockTools);
+  const [selectedTool, setSelectedTool] = useState<any>(null);
   const [selectedCategory, setSelectedCategory] = useState<string>('all');
   const [searchQuery, setSearchQuery] = useState<string>('');
   const [filters, setFilters] = useState<FilterState>({
@@ -32,55 +37,21 @@ function App() {
     featured: false
   });
   const [isAuthModalOpen, setIsAuthModalOpen] = useState(false);
-  const [currentUser, setCurrentUser] = useState<User | null>(null);
 
   const handleSearch = (query: string) => {
     setSearchQuery(query);
-    filterTools(query, filters);
+    loadTools({ ...filters, search: query });
   };
 
   const handleFilterChange = (newFilters: FilterState) => {
     setFilters(newFilters);
-    filterTools(searchQuery, newFilters);
+    loadTools({ ...newFilters, search: searchQuery });
   };
 
-  const filterTools = (query: string, currentFilters: FilterState) => {
-    let filtered = [...tools];
-
-    // Search filter
-    if (query) {
-      filtered = filtered.filter(tool =>
-        tool.name.toLowerCase().includes(query.toLowerCase()) ||
-        tool.description.toLowerCase().includes(query.toLowerCase()) ||
-        tool.tags.some(tag => tag.toLowerCase().includes(query.toLowerCase()))
-      );
-    }
-
-    // Category filter
-    if (currentFilters.category !== 'all') {
-      filtered = filtered.filter(tool => tool.category === currentFilters.category);
-    }
-
-    // Pricing filter
-    if (currentFilters.pricing !== 'all') {
-      filtered = filtered.filter(tool => tool.pricing === currentFilters.pricing);
-    }
-
-    // Rating filter
-    if (currentFilters.rating > 0) {
-      filtered = filtered.filter(tool => tool.rating >= currentFilters.rating);
-    }
-
-    // Featured filter
-    if (currentFilters.featured) {
-      filtered = filtered.filter(tool => tool.featured);
-    }
-
-    setFilteredTools(filtered);
-  };
-
-  const handleToolClick = (toolId: string) => {
+  const handleToolClick = async (toolId: string) => {
     setSelectedToolId(toolId);
+    const tool = await getTool(toolId);
+    setSelectedTool(tool);
     setCurrentPage('tool-detail');
   };
 
@@ -88,65 +59,99 @@ function App() {
     setCurrentPage(page);
     if (page === 'home') {
       setSelectedToolId(null);
+      setSelectedTool(null);
     }
   };
 
-  const handleLogin = (userData: User) => {
-    setCurrentUser(userData);
-    setIsAuthModalOpen(false);
+  const handleCategorySelect = (categoryId: string) => {
+    setSelectedCategory(categoryId);
+    const newFilters = { ...filters, category: categoryId };
+    setFilters(newFilters);
+    loadTools({ ...newFilters, search: searchQuery });
   };
 
-  const handleLogout = () => {
-    setCurrentUser(null);
+  const handleToolSubmit = async (toolData: any) => {
+    const { error } = await createTool(toolData);
+    if (!error) {
+      handleNavigation('home');
+    }
   };
+
+  // Show loading screen while auth is initializing
+  if (authLoading) {
+    return (
+      <div className="min-h-screen bg-gradient-to-br from-slate-50 via-blue-50 to-indigo-50 flex items-center justify-center">
+        <div className="text-center">
+          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-primary-600 mx-auto mb-4"></div>
+          <p className="text-gray-600">Loading AIventory...</p>
+        </div>
+      </div>
+    );
+  }
 
   const renderCurrentPage = () => {
     switch (currentPage) {
       case 'tool-detail':
-        const selectedTool = tools.find(tool => tool.id === selectedToolId);
         return selectedTool ? (
           <ToolDetail 
             tool={selectedTool} 
             onBack={() => handleNavigation('home')}
-            currentUser={currentUser}
+            currentUser={user}
           />
-        ) : null;
+        ) : (
+          <div className="min-h-screen flex items-center justify-center">
+            <div className="text-center">
+              <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-primary-600 mx-auto mb-4"></div>
+              <p className="text-gray-600">Loading tool details...</p>
+            </div>
+          </div>
+        );
       
       case 'dashboard':
-        return currentUser ? (
+        return user ? (
           <Dashboard 
-            user={currentUser}
+            user={user}
             tools={tools}
             onToolClick={handleToolClick}
           />
-        ) : null;
+        ) : (
+          <div className="min-h-screen flex items-center justify-center">
+            <div className="text-center">
+              <p className="text-gray-600 mb-4">Please sign in to access your dashboard</p>
+              <button
+                onClick={() => setIsAuthModalOpen(true)}
+                className="bg-primary-600 text-white px-6 py-3 rounded-lg hover:bg-primary-700 transition-colors"
+              >
+                Sign In
+              </button>
+            </div>
+          </div>
+        );
       
       case 'profile':
-        return currentUser ? (
+        return user ? (
           <Profile 
-            user={currentUser}
-            onUpdateUser={setCurrentUser}
+            user={user}
+            onUpdateUser={() => {}} // This will be handled by the useAuth hook
           />
-        ) : null;
+        ) : (
+          <div className="min-h-screen flex items-center justify-center">
+            <div className="text-center">
+              <p className="text-gray-600 mb-4">Please sign in to access your profile</p>
+              <button
+                onClick={() => setIsAuthModalOpen(true)}
+                className="bg-primary-600 text-white px-6 py-3 rounded-lg hover:bg-primary-700 transition-colors"
+              >
+                Sign In
+              </button>
+            </div>
+          </div>
+        );
       
       case 'submit-tool':
         return (
           <SubmitTool 
-            onSubmit={(toolData) => {
-              const newTool: Tool = {
-                ...toolData,
-                id: Date.now().toString(),
-                rating: 0,
-                reviews: 0,
-                featured: false,
-                verified: false,
-                addedDate: new Date().toISOString().split('T')[0],
-                lastUpdated: new Date().toISOString().split('T')[0]
-              };
-              setTools([...tools, newTool]);
-              setFilteredTools([...filteredTools, newTool]);
-              handleNavigation('home');
-            }}
+            onSubmit={handleToolSubmit}
           />
         );
       
@@ -157,7 +162,8 @@ function App() {
             <Stats />
             <Categories 
               selectedCategory={selectedCategory}
-              onCategorySelect={setSelectedCategory}
+              onCategorySelect={handleCategorySelect}
+              categories={categories}
             />
             <FeaturedTools tools={tools.filter(tool => tool.featured)} />
             
@@ -185,7 +191,7 @@ function App() {
                 
                 <ToolGrid 
                   tools={filteredTools}
-                  loading={false}
+                  loading={toolsLoading}
                   onToolClick={handleToolClick}
                 />
               </div>
@@ -198,10 +204,10 @@ function App() {
   return (
     <div className="min-h-screen bg-gradient-to-br from-slate-50 via-blue-50 to-indigo-50">
       <Header 
-        currentUser={currentUser}
+        currentUser={user}
         onNavigate={handleNavigation}
         onAuthClick={() => setIsAuthModalOpen(true)}
-        onLogout={handleLogout}
+        onLogout={() => {}} // Handled by useAuth hook
         currentPage={currentPage}
       />
       
@@ -216,7 +222,6 @@ function App() {
       <AuthModal 
         isOpen={isAuthModalOpen}
         onClose={() => setIsAuthModalOpen(false)}
-        onLogin={handleLogin}
       />
     </div>
   );

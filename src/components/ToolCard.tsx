@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { motion } from 'framer-motion';
 import { 
   Star, 
@@ -12,6 +12,8 @@ import {
   Clock
 } from 'lucide-react';
 import { Tool } from '../types';
+import { useAuth } from '../hooks/useAuth';
+import { useBookmarks } from '../hooks/useBookmarks';
 
 interface ToolCardProps {
   tool: Tool;
@@ -19,8 +21,10 @@ interface ToolCardProps {
 }
 
 const ToolCard: React.FC<ToolCardProps> = ({ tool, onToolClick }) => {
-  const [isBookmarked, setIsBookmarked] = useState(false);
+  const { user } = useAuth();
+  const { isBookmarked, toggleBookmark } = useBookmarks();
   const [isLiked, setIsLiked] = useState(false);
+  const [bookmarkLoading, setBookmarkLoading] = useState(false);
 
   const getPricingBadge = (pricing: string) => {
     const styles = {
@@ -44,6 +48,17 @@ const ToolCard: React.FC<ToolCardProps> = ({ tool, onToolClick }) => {
     }
   };
 
+  const handleBookmarkClick = async (e: React.MouseEvent) => {
+    e.stopPropagation();
+    if (!user) return;
+
+    setBookmarkLoading(true);
+    await toggleBookmark(tool.id);
+    setBookmarkLoading(false);
+  };
+
+  const toolIsBookmarked = isBookmarked(tool.id);
+
   return (
     <motion.div
       whileHover={{ y: -4 }}
@@ -57,26 +72,30 @@ const ToolCard: React.FC<ToolCardProps> = ({ tool, onToolClick }) => {
             src={tool.image}
             alt={tool.name}
             className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300"
+            onError={(e) => {
+              const target = e.target as HTMLImageElement;
+              target.src = 'https://images.pexels.com/photos/8386440/pexels-photo-8386440.jpeg?auto=compress&cs=tinysrgb&w=400';
+            }}
           />
         </div>
         
         {/* Overlay Actions */}
         <div className="absolute top-4 right-4 flex space-x-2 opacity-0 group-hover:opacity-100 transition-opacity">
-          <motion.button
-            whileHover={{ scale: 1.1 }}
-            whileTap={{ scale: 0.9 }}
-            onClick={(e) => {
-              e.stopPropagation();
-              setIsBookmarked(!isBookmarked);
-            }}
-            className={`p-2 rounded-full backdrop-blur-md border transition-colors ${
-              isBookmarked 
-                ? 'bg-primary-600 text-white border-primary-600' 
-                : 'bg-white/80 text-gray-600 border-white/20 hover:bg-white'
-            }`}
-          >
-            <Bookmark className="h-4 w-4" fill={isBookmarked ? 'currentColor' : 'none'} />
-          </motion.button>
+          {user && (
+            <motion.button
+              whileHover={{ scale: 1.1 }}
+              whileTap={{ scale: 0.9 }}
+              onClick={handleBookmarkClick}
+              disabled={bookmarkLoading}
+              className={`p-2 rounded-full backdrop-blur-md border transition-colors ${
+                toolIsBookmarked 
+                  ? 'bg-primary-600 text-white border-primary-600' 
+                  : 'bg-white/80 text-gray-600 border-white/20 hover:bg-white'
+              } ${bookmarkLoading ? 'opacity-50 cursor-not-allowed' : ''}`}
+            >
+              <Bookmark className="h-4 w-4" fill={toolIsBookmarked ? 'currentColor' : 'none'} />
+            </motion.button>
+          )}
           <motion.button
             whileHover={{ scale: 1.1 }}
             whileTap={{ scale: 0.9 }}

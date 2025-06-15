@@ -10,14 +10,15 @@ import {
   BarChart, 
   Palette 
 } from 'lucide-react';
-import { categories } from '../data/mockData';
+import { Category } from '../types';
 
 interface CategoriesProps {
   selectedCategory: string;
   onCategorySelect: (category: string) => void;
+  categories: Category[];
 }
 
-const Categories: React.FC<CategoriesProps> = ({ selectedCategory, onCategorySelect }) => {
+const Categories: React.FC<CategoriesProps> = ({ selectedCategory, onCategorySelect, categories }) => {
   const iconMap = {
     FileText,
     Image,
@@ -47,15 +48,66 @@ const Categories: React.FC<CategoriesProps> = ({ selectedCategory, onCategorySel
         </motion.div>
 
         <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-8 gap-4">
+          {/* All Categories Button */}
+          <motion.button
+            initial={{ opacity: 0, y: 20 }}
+            whileInView={{ opacity: 1, y: 0 }}
+            transition={{ duration: 0.5 }}
+            whileHover={{ scale: 1.05, y: -2 }}
+            whileTap={{ scale: 0.95 }}
+            onClick={() => onCategorySelect('all')}
+            className={`group relative p-6 rounded-2xl border-2 transition-all duration-300 ${
+              selectedCategory === 'all'
+                ? 'border-primary-500 bg-primary-50 shadow-lg'
+                : 'border-gray-200 bg-white hover:border-primary-300 hover:shadow-md'
+            }`}
+          >
+            <div className="text-center">
+              <div className={`inline-flex items-center justify-center w-12 h-12 rounded-xl mb-3 transition-colors ${
+                selectedCategory === 'all'
+                  ? 'bg-primary-600 text-white'
+                  : 'bg-gray-500 text-white group-hover:scale-110'
+              }`}>
+                <BarChart className="h-6 w-6" />
+              </div>
+              
+              <h3 className={`font-semibold text-sm mb-1 transition-colors ${
+                selectedCategory === 'all'
+                  ? 'text-primary-900'
+                  : 'text-gray-900 group-hover:text-primary-600'
+              }`}>
+                All Tools
+              </h3>
+              
+              <p className={`text-xs transition-colors ${
+                selectedCategory === 'all'
+                  ? 'text-primary-600'
+                  : 'text-gray-500'
+              }`}>
+                View all
+              </p>
+            </div>
+
+            {selectedCategory === 'all' && (
+              <motion.div
+                layoutId="category-indicator"
+                className="absolute inset-0 bg-primary-600/5 rounded-2xl"
+                initial={false}
+                transition={{ type: "spring", bounce: 0.2, duration: 0.6 }}
+              />
+            )}
+          </motion.button>
+
+          {/* Category Buttons */}
           {categories.map((category, index) => {
-            const IconComponent = iconMap[category.icon as keyof typeof iconMap];
+            const IconComponent = iconMap[category.icon as keyof typeof iconMap] || BarChart;
             
             return (
               <motion.button
                 key={category.id}
                 initial={{ opacity: 0, y: 20 }}
                 whileInView={{ opacity: 1, y: 0 }}
-                transition={{ duration: 0.5, delay: index * 0.1 }}
+                transition={{ duration: 0.5, delay: (index + 1) * 0.1 }}
                 whileHover={{ scale: 1.05, y: -2 }}
                 whileTap={{ scale: 0.95 }}
                 onClick={() => onCategorySelect(category.id)}
@@ -91,7 +143,6 @@ const Categories: React.FC<CategoriesProps> = ({ selectedCategory, onCategorySel
                   </p>
                 </div>
 
-                {/* Selection indicator */}
                 {selectedCategory === category.id && (
                   <motion.div
                     layoutId="category-indicator"
