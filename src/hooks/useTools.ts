@@ -6,8 +6,9 @@ import { mockTools } from '../data/mockData';
 export const useTools = () => {
   const [tools, setTools] = useState<Tool[]>(mockTools); // Start with mock data
   const [filteredTools, setFilteredTools] = useState<Tool[]>(mockTools);
-  const [loading, setLoading] = useState(false); // Don't start loading
+  const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [isOnline, setIsOnline] = useState(true);
 
   const loadTools = async (filters?: FilterState & { search?: string }) => {
     try {
@@ -15,12 +16,8 @@ export const useTools = () => {
       setLoading(true);
       setError(null);
 
-      // Try to load from Supabase with timeout
-      const timeoutPromise = new Promise((_, reject) => 
-        setTimeout(() => reject(new Error('Tools load timeout')), 3000)
-      );
-
-      const toolsPromise = db.getTools({
+      // Try to load from Supabase without aggressive timeout
+      const { data, error: fetchError } = await db.getTools({
         category: filters?.category,
         pricing: filters?.pricing,
         rating: filters?.rating,
@@ -28,33 +25,32 @@ export const useTools = () => {
         search: filters?.search
       });
 
-      const { data, error: fetchError } = await Promise.race([toolsPromise, timeoutPromise]) as any;
-
       if (fetchError) {
-        console.error('Tools: Supabase error:', fetchError);
-        // Use mock data with filters applied
+        console.warn('Tools: Supabase error, using mock data:', fetchError);
         const filteredMockTools = applyFiltersToMockData(mockTools, filters);
         setTools(mockTools);
         setFilteredTools(filteredMockTools);
+        setIsOnline(false);
         setError('Using offline data. Some features may be limited.');
         return;
       }
 
+      // Transform Supabase data to our Tool interface
       const transformedTools: Tool[] = (data || []).map((tool: any) => ({
         id: tool.id,
         name: tool.name,
         description: tool.description,
         category: tool.category,
         pricing: tool.pricing,
-        rating: tool.rating,
-        reviews: tool.reviews_count,
-        tags: tool.tags,
+        rating: tool.rating || 0,
+        reviews: tool.reviews_count || 0,
+        tags: tool.tags || [],
         image: tool.image_url,
         url: tool.website_url,
-        featured: tool.featured,
-        verified: tool.verified,
-        addedDate: tool.created_at.split('T')[0],
-        lastUpdated: tool.updated_at.split('T')[0]
+        featured: tool.featured || false,
+        verified: tool.verified || false,
+        addedDate: tool.created_at ? tool.created_at.split('T')[0] : new Date().toISOString().split('T')[0],
+        lastUpdated: tool.updated_at ? tool.updated_at.split('T')[0] : new Date().toISOString().split('T')[0]
       }));
 
       console.log('Tools: Loaded from Supabase:', transformedTools.length);
@@ -64,16 +60,22 @@ export const useTools = () => {
         const filteredMockTools = applyFiltersToMockData(mockTools, filters);
         setTools(mockTools);
         setFilteredTools(filteredMockTools);
+        setIsOnline(false);
+        setError('No tools found in database. Showing sample data.');
       } else {
         setTools(transformedTools);
         setFilteredTools(transformedTools);
+        setIsOnline(true);
+        setError(null);
       }
     } catch (err) {
       console.error('Tools: Error loading tools:', err);
-      // Always fall back to mock data
+      
+      // Always fall back to mock data gracefully
       const filteredMockTools = applyFiltersToMockData(mockTools, filters);
       setTools(mockTools);
       setFilteredTools(filteredMockTools);
+      setIsOnline(false);
       setError('Connection error. Using offline data.');
     } finally {
       setLoading(false);
@@ -121,14 +123,8 @@ export const useTools = () => {
     try {
       console.log('Tools: Getting tool:', id);
       
-      // Try Supabase first with timeout
-      const timeoutPromise = new Promise((_, reject) => 
-        setTimeout(() => reject(new Error('Get tool timeout')), 2000)
-      );
-      
-      const toolPromise = db.getTool(id);
-      
-      const { data, error } = await Promise.race([toolPromise, timeoutPromise]) as any;
+      // Try Supabase first without aggressive timeout
+      const { data, error } = await db.getTool(id);
       
       if (error || !data) {
         console.log('Tools: Tool not found in Supabase, checking mock data');
@@ -142,15 +138,15 @@ export const useTools = () => {
         description: data.description,
         category: data.category,
         pricing: data.pricing,
-        rating: data.rating,
-        reviews: data.reviews_count,
-        tags: data.tags,
+        rating: data.rating || 0,
+        reviews: data.reviews_count || 0,
+        tags: data.tags || [],
         image: data.image_url,
         url: data.website_url,
-        featured: data.featured,
-        verified: data.verified,
-        addedDate: data.created_at.split('T')[0],
-        lastUpdated: data.updated_at.split('T')[0]
+        featured: data.featured || false,
+        verified: data.verified || false,
+        addedDate: data.created_at ? data.created_at.split('T')[0] : new Date().toISOString().split('T')[0],
+        lastUpdated: data.updated_at ? data.updated_at.split('T')[0] : new Date().toISOString().split('T')[0]
       };
 
       console.log('Tools: Tool loaded from Supabase:', transformedTool);
@@ -165,37 +161,51 @@ export const useTools = () => {
   const createTool = async (toolData: any) => {
     try {
       console.log('Tools: Creating tool:', toolData);
-      const { data, error } = await db.createTool({
+      
+      const toolPayload = {
         name: toolData.name,
         description: toolData.description,
         category: toolData.category,
         pricing: toolData.pricing,
-        tags: toolData.tags,
+        tags: toolData.tags || [],
         image_url: toolData.image || 'https://images.pexels.com/photos/8386440/pexels-photo-8386440.jpeg?auto=compress&cs=tinysrgb&w=400',
         website_url: toolData.url,
         featured: false,
         verified: false
-      });
+      };
+
+      const { data, error } = await db.createTool(toolPayload);
 
       if (error) {
+        console.error('Tools: Create tool error:', error);
         throw error;
       }
 
       console.log('Tools: Tool created successfully');
+      
       // Reload tools to get updated list
       await loadTools();
       
       return { data, error: null };
     } catch (err) {
       console.error('Tools: Error creating tool:', err);
-      return { data: null, error: err instanceof Error ? err.message : 'Failed to create tool' };
+      
+      let errorMessage = 'Failed to create tool';
+      if (err instanceof Error) {
+        errorMessage = err.message;
+      }
+      
+      return { data: null, error: errorMessage };
     }
   };
 
-  // Load tools on mount but don't block UI
+  // Load tools on mount with graceful error handling
   useEffect(() => {
     console.log('Tools: Initial load (background)');
-    loadTools(); // This runs in background, UI shows mock data immediately
+    loadTools().catch(err => {
+      console.warn('Tools: Initial load failed:', err);
+      // Error is already handled in loadTools
+    });
   }, []);
 
   return {
@@ -203,6 +213,7 @@ export const useTools = () => {
     filteredTools,
     loading,
     error,
+    isOnline,
     loadTools,
     getTool,
     createTool,

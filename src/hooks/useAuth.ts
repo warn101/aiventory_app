@@ -17,66 +17,81 @@ export const useAuth = () => {
 
   useEffect(() => {
     let mounted = true;
+    let authSubscription: any = null;
 
-    // Get initial session with timeout
-    const getInitialSession = async () => {
+    const initializeAuth = async () => {
       try {
-        console.log('Auth: Getting initial session...');
+        console.log('Auth: Initializing authentication...');
         
-        // Set a timeout to prevent infinite loading
-        const timeoutPromise = new Promise((_, reject) => 
-          setTimeout(() => reject(new Error('Auth timeout')), 3000)
-        );
+        // Get initial session without timeout - let Supabase handle its own timeouts
+        const { user: authUser, error } = await auth.getCurrentUser();
         
-        const authPromise = auth.getCurrentUser();
-        
-        const { user: authUser } = await Promise.race([authPromise, timeoutPromise]) as any;
-        
-        if (mounted) {
-          if (authUser) {
-            console.log('Auth: User found, loading profile...');
-            await loadUserProfile(authUser);
-          } else {
-            console.log('Auth: No user found');
-          }
+        if (!mounted) return;
+
+        if (error) {
+          console.warn('Auth: Error getting current user:', error);
+          setUser(null);
           setLoading(false);
+          return;
         }
+        
+        if (authUser) {
+          console.log('Auth: User found, loading profile...');
+          await loadUserProfile(authUser);
+        } else {
+          console.log('Auth: No user found');
+          setUser(null);
+        }
+        
+        setLoading(false);
       } catch (error) {
-        console.error('Auth: Error getting initial session:', error);
+        console.error('Auth: Error during initialization:', error);
         if (mounted) {
+          setUser(null);
           setLoading(false);
         }
       }
     };
 
-    getInitialSession();
+    // Set up auth state listener
+    const setupAuthListener = () => {
+      const { data: { subscription } } = auth.onAuthStateChange(async (event, session) => {
+        console.log('Auth: State changed:', event, session?.user?.id);
+        
+        if (!mounted) return;
 
-    // Listen for auth changes
-    const { data: { subscription } } = auth.onAuthStateChange(async (event, session) => {
-      console.log('Auth: State changed:', event, session?.user?.id);
-      
-      if (mounted) {
-        if (session?.user) {
-          await loadUserProfile(session.user);
-        } else {
-          setUser(null);
+        try {
+          if (session?.user) {
+            console.log('Auth: User authenticated, loading profile...');
+            await loadUserProfile(session.user);
+          } else {
+            console.log('Auth: User signed out');
+            setUser(null);
+          }
+        } catch (error) {
+          console.error('Auth: Error handling auth state change:', error);
+          if (event === 'SIGNED_OUT') {
+            setUser(null);
+          }
+        } finally {
+          if (mounted) {
+            setLoading(false);
+          }
         }
-        setLoading(false);
-      }
-    });
+      });
 
-    // Fallback timeout to ensure loading stops
-    const fallbackTimeout = setTimeout(() => {
-      if (mounted && loading) {
-        console.log('Auth: Fallback timeout - stopping loading');
-        setLoading(false);
-      }
-    }, 5000);
+      authSubscription = subscription;
+    };
+
+    // Initialize auth and set up listener
+    initializeAuth();
+    setupAuthListener();
 
     return () => {
       mounted = false;
-      subscription.unsubscribe();
-      clearTimeout(fallbackTimeout);
+      if (authSubscription) {
+        authSubscription.unsubscribe();
+      }
     };
   }, []);
 
@@ -84,84 +99,145 @@ export const useAuth = () => {
     try {
       console.log('Auth: Loading user profile for:', authUser.id);
       
-      // Try to get profile, bookmarks, and reviews with timeout
-      const timeoutPromise = new Promise((_, reject) => 
-        setTimeout(() => reject(new Error('Profile load timeout')), 5000)
-      );
-      
-      const profilePromise = Promise.allSettled([
+      // Load profile data with graceful error handling
+      const [profileResult, bookmarksResult, reviewsResult] = await Promise.allSettled([
         db.getProfile(authUser.id),
         db.getBookmarks(authUser.id),
         db.getUserReviews(authUser.id)
       ]);
 
-      const results = await Promise.race([profilePromise, timeoutPromise]) as any;
-      
-      const [profileResult, bookmarksResult, reviewsResult] = results;
-
+      // Extract data from settled promises
       const profile = profileResult.status === 'fulfilled' ? profileResult.value.data : null;
-      const bookmarks = bookmarksResult.status === 'fulfilled' ? bookmarksResult.value.data : [];
-      const reviews = reviewsResult.status === 'fulfilled' ? reviewsResult.value.data : [];
+      const bookmarks = bookmarksResult.status === 'fulfilled' ? profileResult.value.data || [] : [];
+      const reviews = reviewsResult.status === 'fulfilled' ? reviewsResult.value.data || [] : [];
 
-      console.log('Auth: Profile loaded:', { profile, bookmarks: bookmarks?.length, reviews: reviews?.length });
+      // Log any errors but don't fail the entire process
+      if (profileResult.status === 'rejected') {
+        console.warn('Auth: Profile fetch failed:', profileResult.reason);
+      }
+      if (bookmarksResult.status === 'rejected') {
+        console.warn('Auth: Bookmarks fetch failed:', bookmarksResult.reason);
+      }
+      if (reviewsResult.status === 'rejected') {
+        console.warn('Auth: Reviews fetch failed:', reviewsResult.reason);
+      }
 
-      setUser({
+      console.log('Auth: Profile data loaded:', { 
+        hasProfile: !!profile, 
+        bookmarksCount: bookmarks.length, 
+        reviewsCount: reviews.length 
+      });
+
+      const userData: AuthUser = {
         id: authUser.id,
-        name: profile?.name || authUser.email?.split('@')[0] || 'User',
+        name: profile?.name || authUser.user_metadata?.name || authUser.email?.split('@')[0] || 'User',
         email: profile?.email || authUser.email || '',
         avatar: profile?.avatar_url || `https://images.pexels.com/photos/220453/pexels-photo-220453.jpeg?auto=compress&cs=tinysrgb&w=100`,
-        bookmarks: bookmarks?.map((b: any) => b.tool_id) || [],
+        bookmarks: bookmarks.map((b: any) => b.tool_id) || [],
         reviews: reviews || []
-      });
+      };
+
+      setUser(userData);
+
+      // Create profile if it doesn't exist (fire and forget)
+      if (!profile && profileResult.status === 'fulfilled') {
+        console.log('Auth: Creating new profile for user');
+        db.createProfile({
+          id: authUser.id,
+          name: userData.name,
+          email: userData.email,
+          avatar_url: userData.avatar
+        }).catch(createError => {
+          console.warn('Auth: Failed to create profile:', createError);
+        });
+      }
+
     } catch (error) {
       console.error('Auth: Error loading user profile:', error);
-      // Fallback user data
-      setUser({
+      
+      // Create fallback user data
+      const fallbackUser: AuthUser = {
         id: authUser.id,
-        name: authUser.email?.split('@')[0] || 'User',
+        name: authUser.user_metadata?.name || authUser.email?.split('@')[0] || 'User',
         email: authUser.email || '',
         avatar: `https://images.pexels.com/photos/220453/pexels-photo-220453.jpeg?auto=compress&cs=tinysrgb&w=100`,
         bookmarks: [],
         reviews: []
-      });
+      };
+
+      setUser(fallbackUser);
     }
   };
 
   const signUp = async (email: string, password: string, name: string) => {
     try {
       console.log('Auth: Signing up user:', email);
+      setLoading(true);
+      
       const { data, error } = await auth.signUp(email, password, { name });
-      console.log('Auth: Signup result:', { data: !!data, error });
-      return { data, error };
+      
+      if (error) {
+        console.error('Auth: Signup error:', error);
+        return { data: null, error };
+      }
+
+      console.log('Auth: Signup successful');
+      return { data, error: null };
     } catch (error) {
-      console.error('Auth: Signup error:', error);
-      return { data: null, error };
+      console.error('Auth: Signup exception:', error);
+      return { 
+        data: null, 
+        error: { message: 'Failed to create account. Please try again.' }
+      };
+    } finally {
+      setLoading(false);
     }
   };
 
   const signIn = async (email: string, password: string) => {
     try {
       console.log('Auth: Signing in user:', email);
+      setLoading(true);
+      
       const { data, error } = await auth.signIn(email, password);
-      console.log('Auth: Signin result:', { data: !!data, error });
-      return { data, error };
+      
+      if (error) {
+        console.error('Auth: Signin error:', error);
+        return { data: null, error };
+      }
+
+      console.log('Auth: Signin successful');
+      return { data, error: null };
     } catch (error) {
-      console.error('Auth: Signin error:', error);
-      return { data: null, error };
+      console.error('Auth: Signin exception:', error);
+      return { 
+        data: null, 
+        error: { message: 'Failed to sign in. Please check your credentials.' }
+      };
+    } finally {
+      setLoading(false);
     }
   };
 
   const signOut = async () => {
     try {
       console.log('Auth: Signing out user');
+      
       const { error } = await auth.signOut();
-      if (!error) {
-        setUser(null);
+      
+      if (error) {
+        console.error('Auth: Signout error:', error);
+        return { error };
       }
-      return { error };
+
+      console.log('Auth: Signout successful');
+      setUser(null);
+      return { error: null };
     } catch (error) {
-      console.error('Auth: Signout error:', error);
-      return { error };
+      console.error('Auth: Signout exception:', error);
+      return { 
+        error: { message: 'Failed to sign out. Please try again.' }
+      };
     }
   };
 
@@ -170,20 +246,31 @@ export const useAuth = () => {
 
     try {
       console.log('Auth: Updating profile:', updates);
-      const { data, error } = await db.updateProfile(user.id, {
+      
+      const profileUpdates = {
         name: updates.name,
         email: updates.email,
         avatar_url: updates.avatar,
-      });
+      };
 
-      if (!error && data) {
-        setUser({ ...user, ...updates });
+      const { data, error } = await db.updateProfile(user.id, profileUpdates);
+
+      if (error) {
+        console.error('Auth: Profile update error:', error);
+        return { data: null, error };
       }
 
-      return { data, error };
+      // Update local user state
+      setUser({ ...user, ...updates });
+      console.log('Auth: Profile updated successfully');
+      
+      return { data, error: null };
     } catch (error) {
-      console.error('Auth: Profile update error:', error);
-      return { data: null, error };
+      console.error('Auth: Profile update exception:', error);
+      return { 
+        data: null, 
+        error: { message: 'Failed to update profile. Please try again.' }
+      };
     }
   };
 
