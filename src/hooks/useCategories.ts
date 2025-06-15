@@ -15,8 +15,8 @@ export const useCategories = () => {
       setError(null);
 
       // Try to load from Supabase with timeout
-      const timeoutPromise = new Promise((_, reject) => 
-        setTimeout(() => reject(new Error('Categories load timeout')), 7000)
+      const timeoutPromise = new Promise((resolve) => 
+        setTimeout(() => resolve({ data: null, error: new Error('Categories load timeout') }), 7000)
       );
 
       const categoriesPromise = db.getCategories();
