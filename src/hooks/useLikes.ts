@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { useAuth } from './useAuth';
-import { db } from '../lib/supabase';
+import { db, supabase } from '../lib/supabase';
 
 export interface LikeData {
   like_count: number;
@@ -28,7 +28,7 @@ export const useLikes = (toolId: string) => {
       setLoading(true);
       
       // Check if we have an active session before making the request
-      const { data: { session } } = await db.supabase.auth.getSession();
+      const { data: { session } } = await supabase.auth.getSession();
       if (!session && user?.id) {
         console.warn('useLikes: No active session found, but user exists. Using cached data.');
         return;
@@ -62,7 +62,7 @@ export const useLikes = (toolId: string) => {
       setToggling(true);
       
       // Check if we have an active session before making the request
-      const { data: { session } } = await db.supabase.auth.getSession();
+      const { data: { session } } = await supabase.auth.getSession();
       if (!session) {
         throw new Error('No active session. Please sign in again.');
       }
@@ -120,7 +120,7 @@ export const useLikes = (toolId: string) => {
       setToggling(true);
       
       // Check if we have an active session before making the request
-      const { data: { session } } = await db.supabase.auth.getSession();
+      const { data: { session } } = await supabase.auth.getSession();
       if (!session) {
         throw new Error('No active session. Please sign in again.');
       }
@@ -166,7 +166,7 @@ export const useLikes = (toolId: string) => {
       setToggling(true);
       
       // Check if we have an active session before making the request
-      const { data: { session } } = await db.supabase.auth.getSession();
+      const { data: { session } } = await supabase.auth.getSession();
       if (!session) {
         throw new Error('No active session. Please sign in again.');
       }
@@ -248,7 +248,7 @@ export const useMultipleLikes = (toolIds: string[]) => {
       setLoading(true);
       
       // Check if we have an active session before making the request
-      const { data: { session } } = await db.supabase.auth.getSession();
+      const { data: { session } } = await supabase.auth.getSession();
       if (!session && user?.id) {
         console.warn('useMultipleLikes: No active session found, but user exists. Using cached data.');
         return;

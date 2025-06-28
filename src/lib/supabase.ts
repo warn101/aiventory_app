@@ -346,27 +346,9 @@ export const auth = {
 // Optimized bookmark functions with performance improvements
 export const getBookmarks = async (userId: string) => {
   try {
-    // Step 1: Verify user authentication
-    const { data: { session }, error: sessionError } = await supabase.auth.getSession();
+    console.log('🔍 DB: Fetching bookmarks for user:', userId);
     
-    if (sessionError || !session) {
-      console.error('❌ DB: User not authenticated:', sessionError);
-      return { data: [], error: new Error('User not authenticated') };
-    }
-    
-    // Step 2: Verify user exists in profiles (optional, for additional validation)
-    const { data: userProfile } = await supabase
-      .from('profiles')
-      .select('id')
-      .eq('id', userId)
-      .single();
-    
-    if (!userProfile) {
-      console.error('❌ DB: User profile not found:', userId);
-      return { data: [], error: new Error('User profile not found') };
-    }
-    
-    // Step 3: Get bookmarks with explicit LEFT JOIN and proper ordering
+    // Directly fetch bookmarks without redundant auth checks
     const result = await supabase
       .from('bookmarks')
       .select(`
@@ -424,6 +406,9 @@ export const fetchBookmarks = async (userId: string) => {
 
 // Database helpers with improved error handling
 export const db = {
+  // Expose the supabase client for direct access
+  supabase,
+
   // Tools
   getTools: async (filters?: {
     category?: string;
@@ -636,27 +621,7 @@ export const db = {
     try {
       console.log('🔍 DB: Fetching bookmarks for user:', userId);
       
-      // Step 1: Verify user authentication
-      const { data: { session }, error: sessionError } = await supabase.auth.getSession();
-      
-      if (sessionError || !session) {
-        console.error('❌ DB: User not authenticated:', sessionError);
-        return { data: [], error: new Error('User not authenticated') };
-      }
-      
-      // Step 2: Check if user exists in profiles (optional, for additional validation)
-      const { data: userProfile } = await supabase
-        .from('profiles')
-        .select('id')
-        .eq('id', userId)
-        .single();
-      
-      if (!userProfile) {
-        console.error('❌ DB: User profile not found:', userId);
-        return { data: [], error: new Error('User profile not found') };
-      }
-      
-      // Step 3: Get bookmarks with explicit LEFT JOIN and proper ordering
+      // Directly fetch bookmarks without redundant auth checks
       const result = await supabase
         .from('bookmarks')
         .select(`
