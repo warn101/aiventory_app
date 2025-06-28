@@ -68,28 +68,32 @@ export const supabase = createClient<Database>(
   }
 );
 
-// Test connection with better error handling and timeout
-(async () => {
-  try {
-    // Set a timeout for the connection test
-    const timeoutPromise = new Promise((_, reject) => 
-      setTimeout(() => reject(new Error('Connection test timeout')), 5000)
-    );
-    
-    const connectionPromise = supabase.from('tools').select('count', { count: 'exact', head: true });
-    
-    // Race between the connection test and timeout
-    const { count, error } = await Promise.race([connectionPromise, timeoutPromise]) as any;
-    
-    if (error) {
-      console.warn('⚠️ Supabase connection test failed:', error.message);
-    } else {
-      console.log('✅ Supabase connected successfully. Tools count:', count);
+// Test connection with better error handling and timeout - only if we have valid credentials
+if (supabaseUrl && supabaseAnonKey && supabaseUrl !== 'https://placeholder.supabase.co') {
+  (async () => {
+    try {
+      // Set a timeout for the connection test
+      const timeoutPromise = new Promise((_, reject) => 
+        setTimeout(() => reject(new Error('Connection test timeout')), 5000)
+      );
+      
+      const connectionPromise = supabase.from('tools').select('count', { count: 'exact', head: true });
+      
+      // Race between the connection test and timeout
+      const { count, error } = await Promise.race([connectionPromise, timeoutPromise]) as any;
+      
+      if (error) {
+        console.warn('⚠️ Supabase connection test failed:', error.message);
+      } else {
+        console.log('✅ Supabase connected successfully. Tools count:', count);
+      }
+    } catch (err) {
+      console.warn('⚠️ Supabase connection test error:', (err as Error).message);
     }
-  } catch (err) {
-    console.warn('⚠️ Supabase connection test error:', (err as Error).message);
-  }
-})();
+  })();
+} else {
+  console.warn('⚠️ Skipping Supabase connection test - using placeholder credentials');
+}
 
 // Auth helpers with improved error handling
 export const auth = {
