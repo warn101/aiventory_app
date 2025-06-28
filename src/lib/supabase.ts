@@ -50,6 +50,7 @@ export const supabase = createClient<Database>(
     global: {
       headers: {
         'X-Client-Info': 'supabase-js-web',
+        'Accept': 'application/json',
       },
       // WebContainer-safe fetch configuration
       fetch: (url, options = {}) => {
