@@ -22,13 +22,16 @@ import { useAuthStore } from './store/authStore';
 import { useCategories } from './hooks/useCategories';
 import { Database } from './types/database';
 import { db } from './lib/supabase';
+import { mockTools } from './data/mockData';
 
 type Page = 'home' | 'tool-detail' | 'dashboard' | 'profile' | 'submit-tool';
 
 export default function App() {
   const { user: authUser, loading: authLoading, signOut } = useAuthStore();
-  const { tools, filteredTools, loading: toolsLoading, loadTools, getTool, createTool } = useCategories();
   const { categories } = useCategories();
+  const [tools, setTools] = useState<Tool[]>(mockTools);
+  const [filteredTools, setFilteredTools] = useState<Tool[]>(mockTools);
+  const [toolsLoading, setToolsLoading] = useState(false);
 
   const [currentPage, setCurrentPage] = useState<Page>('home');
   const [selectedTool, setSelectedTool] = useState<Tool | null>(null);
@@ -39,6 +42,48 @@ export default function App() {
   const [appReady, setAppReady] = useState(false);
   const [showEmailConfirmation, setShowEmailConfirmation] = useState(false);
   const [confirmationToken, setConfirmationToken] = useState<string | null>(null);
+
+  // Load tools from API or mock data
+  useEffect(() => {
+    const loadTools = async () => {
+      setToolsLoading(true);
+      try {
+        const { data, error } = await db.getTools();
+        if (error || !data || data.length === 0) {
+          console.log('Using mock data for tools');
+          setTools(mockTools);
+          setFilteredTools(mockTools);
+        } else {
+          const transformedTools: Tool[] = data.map((tool: any) => ({
+            id: tool.id,
+            name: tool.name,
+            description: tool.description,
+            category: tool.category,
+            pricing: tool.pricing,
+            rating: tool.rating || 0,
+            reviews: tool.reviews_count || 0,
+            tags: tool.tags || [],
+            image: 'https://images.pexels.com/photos/8386440/pexels-photo-8386440.jpeg?auto=compress&cs=tinysrgb&w=400',
+            url: tool.website_url,
+            featured: tool.featured || false,
+            verified: tool.verified || false,
+            addedDate: tool.created_at || new Date().toISOString(),
+            lastUpdated: tool.updated_at || new Date().toISOString()
+          }));
+          setTools(transformedTools);
+          setFilteredTools(transformedTools);
+        }
+      } catch (err) {
+        console.error('Error loading tools:', err);
+        setTools(mockTools);
+        setFilteredTools(mockTools);
+      } finally {
+        setToolsLoading(false);
+      }
+    };
+
+    loadTools();
+  }, []);
 
   // 🗂️ 1️⃣ Properly transform `authUser` → `User`
   const user: AppUser | null = authUser
@@ -80,19 +125,85 @@ export default function App() {
   };
 
   const handleToolClick = async (id: string) => {
-    const tool = await getTool(id);
-    setSelectedTool(tool);
-    setCurrentPage('tool-detail');
+    try {
+      const { data, error } = await db.getTool(id);
+      if (error || !data) {
+        const mockTool = mockTools.find(t => t.id === id);
+        if (mockTool) {
+          setSelectedTool(mockTool);
+        } else {
+          console.error('Tool not found');
+          return;
+        }
+      } else {
+        const tool: Tool = {
+          id: data.id,
+          name: data.name,
+          description: data.description,
+          category: data.category,
+          pricing: data.pricing,
+          rating: data.rating || 0,
+          reviews: data.reviews_count || 0,
+          tags: data.tags || [],
+          image: 'https://images.pexels.com/photos/8386440/pexels-photo-8386440.jpeg?auto=compress&cs=tinysrgb&w=400',
+          url: data.website_url,
+          featured: data.featured || false,
+          verified: data.verified || false,
+          addedDate: data.created_at || new Date().toISOString(),
+          lastUpdated: data.updated_at || new Date().toISOString()
+        };
+        setSelectedTool(tool);
+      }
+      setCurrentPage('tool-detail');
+    } catch (error) {
+      console.error('Error fetching tool:', error);
+    }
   };
 
   const handleSearch = (query: string) => {
     setSearchQuery(query);
-    loadTools({ ...filters, search: query });
+    applyFilters({ ...filters, search: query });
   };
 
   const handleFilterChange = (newFilters: FilterState) => {
     setFilters(newFilters);
-    loadTools({ ...newFilters, search: searchQuery });
+    applyFilters({ ...newFilters, search: searchQuery });
+  };
+
+  const applyFilters = (filters: FilterState & { search?: string }) => {
+    let filtered = [...tools];
+    
+    // Category filter
+    if (filters.category && filters.category !== 'all') {
+      filtered = filtered.filter(tool => tool.category === filters.category);
+    }
+    
+    // Pricing filter
+    if (filters.pricing && filters.pricing !== 'all') {
+      filtered = filtered.filter(tool => tool.pricing === filters.pricing);
+    }
+    
+    // Rating filter
+    if (filters.rating && filters.rating > 0) {
+      filtered = filtered.filter(tool => tool.rating >= filters.rating);
+    }
+    
+    // Featured filter
+    if (filters.featured) {
+      filtered = filtered.filter(tool => tool.featured);
+    }
+    
+    // Search filter
+    if (filters.search) {
+      const query = filters.search.toLowerCase();
+      filtered = filtered.filter(tool => 
+        tool.name.toLowerCase().includes(query) || 
+        tool.description.toLowerCase().includes(query) ||
+        tool.tags.some(tag => tag.toLowerCase().includes(query))
+      );
+    }
+    
+    setFilteredTools(filtered);
   };
 
   const handleToolSubmit = async (data: Database['public']['Tables']['tools']['Insert']) => {
@@ -100,12 +211,40 @@ export default function App() {
       setIsAuthModalOpen(true);
       return;
     }
-    const { error } = await createTool(data);
-    if (!error) {
+    
+    try {
+      const { error } = await db.createTool(data);
+      if (error) {
+        throw new Error(error.message || 'Failed to submit tool');
+      }
+      
+      // Refresh tools list
+      const { data: newTools, error: fetchError } = await db.getTools();
+      if (!fetchError && newTools) {
+        const transformedTools: Tool[] = newTools.map((tool: any) => ({
+          id: tool.id,
+          name: tool.name,
+          description: tool.description,
+          category: tool.category,
+          pricing: tool.pricing,
+          rating: tool.rating || 0,
+          reviews: tool.reviews_count || 0,
+          tags: tool.tags || [],
+          image: 'https://images.pexels.com/photos/8386440/pexels-photo-8386440.jpeg?auto=compress&cs=tinysrgb&w=400',
+          url: tool.website_url,
+          featured: tool.featured || false,
+          verified: tool.verified || false,
+          addedDate: tool.created_at || new Date().toISOString(),
+          lastUpdated: tool.updated_at || new Date().toISOString()
+        }));
+        setTools(transformedTools);
+        setFilteredTools(transformedTools);
+      }
+      
       alert('Tool submitted!');
       handleNavigation('home');
-    } else {
-      alert(`Error: ${(error as { message?: string }).message}`);
+    } catch (error) {
+      alert(`Error: ${(error as Error).message}`);
     }
   };
 
@@ -173,7 +312,10 @@ export default function App() {
               }}
               categories={categories}
             />
-            <FeaturedTools tools={tools.filter(t => t.featured)} />
+            {/* Check if tools array exists and has items before filtering */}
+            {tools && tools.length > 0 && (
+              <FeaturedTools tools={tools.filter(t => t && t.featured)} />
+            )}
             <section className="py-16 px-4">
               <div className="max-w-7xl mx-auto">
                 <motion.div initial={{ opacity: 0, y: 20 }} whileInView={{ opacity: 1, y: 0 }}>
