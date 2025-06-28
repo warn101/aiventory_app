@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
+import { Toaster } from 'react-hot-toast';
 
 import Header from './components/Header';
 import Footer from './components/Footer';
@@ -15,19 +16,17 @@ import ToolDetail from './pages/ToolDetail';
 import Dashboard from './pages/Dashboard';
 import Profile from './pages/Profile';
 import SubmitTool from './pages/SubmitTool';
-import BookmarkPerformanceMonitor from './components/BookmarkPerformanceMonitor';
 
-import { FilterState, Tool, User as AppUser } from './types';
-import { useAuthContext } from './contexts/AuthContext';
+import { FilterState, Tool } from './types';
+import { useAuthStore } from './store/authStore';
 import { useTools } from './hooks/useTools';
 import { useCategories } from './hooks/useCategories';
-import { Database } from './types/database';
 import { db } from './lib/supabase';
 
 type Page = 'home' | 'tool-detail' | 'dashboard' | 'profile' | 'submit-tool';
 
 export default function App() {
-  const { user: authUser, loading: authLoading, signOut } = useAuthContext();
+  const { user, signOut } = useAuthStore();
   const { tools, filteredTools, loading: toolsLoading, loadTools, getTool, createTool } = useTools();
   const { categories } = useCategories();
 
@@ -37,27 +36,10 @@ export default function App() {
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedCategory, setSelectedCategory] = useState('all');
   const [isAuthModalOpen, setIsAuthModalOpen] = useState(false);
-  const [appReady, setAppReady] = useState(false);
   const [showEmailConfirmation, setShowEmailConfirmation] = useState(false);
   const [confirmationToken, setConfirmationToken] = useState<string | null>(null);
 
-  // 🗂️ 1️⃣ Properly transform `authUser` → `User`
-  const user: AppUser | null = authUser
-    ? {
-        ...authUser,
-        reviews: authUser.reviews.map(r => ({
-          id: r.id,
-          toolId: r.tool_id,
-          userId: r.user_id,
-          rating: r.rating,
-          comment: r.comment,
-          date: r.created_at.split('T')[0],
-          helpful: r.helpful_count
-        }))
-      }
-    : null;
-
-  // 📨 2️⃣ Handle confirmation tokens
+  // Check for confirmation tokens in URL
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
     const token = params.get('token') || params.get('confirmation_token');
@@ -68,13 +50,7 @@ export default function App() {
     }
   }, []);
 
-  // ⏳ 3️⃣ Splash load guard
-  useEffect(() => {
-    const timer = setTimeout(() => setAppReady(true), 1000);
-    return () => clearTimeout(timer);
-  }, []);
-
-  // 🔀 4️⃣ Navigation handlers
+  // Navigation handlers
   const handleNavigation = (page: Page) => {
     setCurrentPage(page);
     if (page === 'home') setSelectedTool(null);
@@ -96,7 +72,7 @@ export default function App() {
     loadTools({ ...newFilters, search: searchQuery });
   };
 
-  const handleToolSubmit = async (data: Database['public']['Tables']['tools']['Insert']) => {
+  const handleToolSubmit = async (data: any) => {
     if (!user) {
       setIsAuthModalOpen(true);
       return;
@@ -110,15 +86,7 @@ export default function App() {
     }
   };
 
-  if (authLoading && !appReady) {
-    return (
-      <div className="flex items-center justify-center min-h-screen">
-        Loading...
-      </div>
-    );
-  }
-
-  // 🧭 5️⃣ Correctly typed pages
+  // Render current page based on state
   const renderCurrentPage = () => {
     switch (currentPage) {
       case 'tool-detail':
@@ -126,7 +94,7 @@ export default function App() {
           <ToolDetail 
             tool={selectedTool} 
             onBack={() => handleNavigation('home')}
-            currentUser={user} // ✅ typed properly
+            currentUser={user} 
           />
         ) : <p>Loading...</p>;
 
@@ -137,7 +105,7 @@ export default function App() {
             tools={tools} 
             onToolClick={handleToolClick} 
           />
-        ) : <SignInPrompt />;
+        ) : <SignInPrompt onSignIn={() => setIsAuthModalOpen(true)} />;
 
       case 'profile':
         return user ? (
@@ -151,7 +119,7 @@ export default function App() {
               });
             }}
           />
-        ) : <SignInPrompt />;
+        ) : <SignInPrompt onSignIn={() => setIsAuthModalOpen(true)} />;
 
       case 'submit-tool':
         return user ? (
@@ -159,7 +127,7 @@ export default function App() {
             onSubmit={handleToolSubmit} 
             user={user} 
           />
-        ) : <SignInPrompt />;
+        ) : <SignInPrompt onSignIn={() => setIsAuthModalOpen(true)} />;
 
       default:
         return (
@@ -197,18 +165,6 @@ export default function App() {
     }
   };
 
-  const SignInPrompt = () => (
-    <div className="min-h-screen flex flex-col items-center justify-center">
-      <p className="mb-4">Please sign in to continue.</p>
-      <button 
-        onClick={() => setIsAuthModalOpen(true)} 
-        className="btn-primary"
-      >
-        Sign In
-      </button>
-    </div>
-  );
-
   return (
     <div>
       <Header
@@ -243,10 +199,20 @@ export default function App() {
         />
       )}
       
-      {/* Performance Monitor - only show in development */}
-      {process.env.NODE_ENV === 'development' && (
-        <BookmarkPerformanceMonitor showDetails={false} />
-      )}
+      <Toaster position="top-center" />
     </div>
   );
 }
+
+// Sign in prompt component
+const SignInPrompt: React.FC<{ onSignIn: () => void }> = ({ onSignIn }) => (
+  <div className="min-h-screen flex flex-col items-center justify-center">
+    <p className="mb-4">Please sign in to continue.</p>
+    <button 
+      onClick={onSignIn} 
+      className="bg-primary-600 text-white px-6 py-2 rounded-lg hover:bg-primary-700 transition-colors"
+    >
+      Sign In
+    </button>
+  </div>
+);

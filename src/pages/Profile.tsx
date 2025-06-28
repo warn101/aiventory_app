@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { motion } from 'framer-motion';
 import { 
   User as UserIcon, 
@@ -14,26 +14,33 @@ import {
   Shield,
   Palette
 } from 'lucide-react';
-import { User } from '../types';
+import { useRequireAuth } from '../hooks/useRequireAuth';
+import { useProfile } from '../hooks/useProfile';
+import { useAuthStore } from '../store/authStore';
 import ImageUpload from '../components/ImageUpload';
 
 interface ProfileProps {
-  user: User;
-  onUpdateUser: (user: User) => void;
+  user: any;
+  onUpdateUser: (user: any) => void;
 }
 
-const Profile: React.FC<ProfileProps> = ({ user, onUpdateUser }) => {
+const Profile: React.FC<ProfileProps> = ({ onUpdateUser }) => {
+  // Require authentication for this page
+  const { isAuthenticated } = useRequireAuth({ redirectTo: '/' });
+  const { user } = useAuthStore();
+  const { profile, loading, updateProfile } = useProfile();
+  
   const [isEditing, setIsEditing] = useState(false);
   const [activeTab, setActiveTab] = useState<'profile' | 'preferences' | 'security'>('profile');
   const [showAvatarUpload, setShowAvatarUpload] = useState(false);
   const [formData, setFormData] = useState({
-    name: user.name,
-    email: user.email,
+    name: '',
+    email: '',
     bio: 'AI enthusiast and developer passionate about discovering innovative tools.',
     location: 'San Francisco, CA',
     website: 'https://example.com',
     joinDate: '2024-01-01',
-    avatar: user.avatar
+    avatar: ''
   });
 
   const [preferences, setPreferences] = useState({
@@ -43,16 +50,52 @@ const Profile: React.FC<ProfileProps> = ({ user, onUpdateUser }) => {
     theme: 'light'
   });
 
-  const handleSave = () => {
-    const updatedUser: User = {
-      ...user,
-      name: formData.name,
-      email: formData.email,
-      avatar: formData.avatar
-    };
-    onUpdateUser(updatedUser);
-    setIsEditing(false);
-    setShowAvatarUpload(false);
+  // Initialize form data when profile loads
+  useEffect(() => {
+    if (profile) {
+      setFormData({
+        name: profile.name || '',
+        email: profile.email || '',
+        bio: profile.bio || 'AI enthusiast and developer passionate about discovering innovative tools.',
+        location: profile.location || 'San Francisco, CA',
+        website: profile.website || 'https://example.com',
+        joinDate: profile.created_at || '2024-01-01',
+        avatar: profile.avatar_url || ''
+      });
+    }
+  }, [profile]);
+
+  const handleSave = async () => {
+    if (!user) return;
+    
+    try {
+      const { error } = await updateProfile({
+        name: formData.name,
+        email: formData.email,
+        bio: formData.bio,
+        location: formData.location,
+        website: formData.website,
+        avatar_url: formData.avatar
+      });
+      
+      if (error) {
+        throw error;
+      }
+      
+      // Update user in parent component
+      onUpdateUser({
+        ...user,
+        name: formData.name,
+        email: formData.email,
+        avatar: formData.avatar
+      });
+      
+      setIsEditing(false);
+      setShowAvatarUpload(false);
+    } catch (error) {
+      console.error('Failed to update profile:', error);
+      alert('Failed to update profile. Please try again.');
+    }
   };
 
   const handleAvatarUpload = (url: string) => {
@@ -70,6 +113,14 @@ const Profile: React.FC<ProfileProps> = ({ user, onUpdateUser }) => {
     });
   };
 
+  if (loading) {
+    return (
+      <div className="min-h-screen flex items-center justify-center">
+        <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-primary-600"></div>
+      </div>
+    );
+  }
+
   return (
     <div className="min-h-screen bg-gray-50 py-8">
       <div className="max-w-4xl mx-auto px-4">
@@ -84,8 +135,8 @@ const Profile: React.FC<ProfileProps> = ({ user, onUpdateUser }) => {
             <div className="flex items-end space-x-6 -mt-16">
               <div className="relative">
                 <img
-                  src={formData.avatar}
-                  alt={user.name}
+                  src={formData.avatar || "https://images.pexels.com/photos/220453/pexels-photo-220453.jpeg?auto=compress&cs=tinysrgb&w=100"}
+                  alt={formData.name}
                   className="w-32 h-32 rounded-full border-4 border-white shadow-lg object-cover"
                 />
                 {isEditing && (
@@ -124,7 +175,7 @@ const Profile: React.FC<ProfileProps> = ({ user, onUpdateUser }) => {
               <div className="flex-1 pt-4">
                 <div className="flex items-center justify-between">
                   <div>
-                    <h1 className="text-3xl font-bold text-gray-900">{user.name}</h1>
+                    <h1 className="text-3xl font-bold text-gray-900">{formData.name}</h1>
                     <p className="text-gray-600">{formData.bio}</p>
                   </div>
                   
@@ -165,7 +216,7 @@ const Profile: React.FC<ProfileProps> = ({ user, onUpdateUser }) => {
                 <div className="flex items-center space-x-6 mt-4 text-gray-600">
                   <div className="flex items-center space-x-2">
                     <Mail className="h-4 w-4" />
-                    <span>{user.email}</span>
+                    <span>{formData.email}</span>
                   </div>
                   <div className="flex items-center space-x-2">
                     <Calendar className="h-4 w-4" />
@@ -303,7 +354,7 @@ const Profile: React.FC<ProfileProps> = ({ user, onUpdateUser }) => {
                             onChange={(e) => setPreferences({ ...preferences, [pref.key]: e.target.checked })}
                             className="sr-only peer"
                           />
-                          <div className="w-11 h-6 bg-gray-200 peer-focus:outline-none peer-focus:ring-4 peer-focus:ring-primary-300 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-primary-600"></div>
+                          <div className={`w-11 h-6 bg-gray-200 peer-focus:outline-none peer-focus:ring-4 peer-focus:ring-primary-300 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-primary-600`}></div>
                         </label>
                       </div>
                     ))}

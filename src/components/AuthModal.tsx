@@ -1,8 +1,8 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { X, Mail, Lock, User as UserIcon, Eye, EyeOff, AlertCircle, CheckCircle } from 'lucide-react';
-import toast, { Toaster } from 'react-hot-toast';
-import { useAuthContext } from '../contexts/AuthContext';
+import { X, Mail, Lock, User as UserIcon, Eye, EyeOff, AlertCircle } from 'lucide-react';
+import toast from 'react-hot-toast';
+import { useAuthStore } from '../store/authStore';
 
 interface AuthModalProps {
   isOpen: boolean;
@@ -22,7 +22,7 @@ interface ValidationErrors {
 }
 
 const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose }) => {
-  const { user, signUp, signIn, loading: authLoading, isAuthenticated } = useAuthContext();
+  const { user, loading, initialized, signIn, signUp } = useAuthStore();
   const [isLogin, setIsLogin] = useState(true);
   const [showPassword, setShowPassword] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
@@ -54,11 +54,11 @@ const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose }) => {
 
   // Auto-close modal when user is authenticated
   useEffect(() => {
-    if (isAuthenticated() && isOpen && !isSubmitting) {
+    if (user && isOpen && !isSubmitting && initialized) {
       console.log('AuthModal: User authenticated, auto-closing modal');
       onClose();
     }
-  }, [isAuthenticated, isOpen, isSubmitting, onClose]);
+  }, [user, isOpen, isSubmitting, onClose, initialized]);
 
   // Validation functions
   const validateEmail = (email: string): string | undefined => {
@@ -131,16 +131,16 @@ const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose }) => {
         
         if (error) {
           // Provide specific error messages for common issues
-          let errorMessage = (error as { message?: string }).message || 'Failed to sign in';
+          let errorMessage = error.message || 'Failed to sign in';
           
-          if ((error as { message?: string }).message?.toLowerCase().includes('email not confirmed')) {
+          if (error.message?.toLowerCase().includes('email not confirmed')) {
             errorMessage = 'Please check your email and click the confirmation link before signing in.';
             toast.error(errorMessage, { duration: 6000 });
-          } else if ((error as { message?: string }).message?.toLowerCase().includes('invalid') && (error as { message?: string }).message?.toLowerCase().includes('credentials')) {
+          } else if (error.message?.toLowerCase().includes('invalid') && error.message?.toLowerCase().includes('credentials')) {
             errorMessage = 'Invalid email or password. Please check your credentials.';
             toast.error(errorMessage);
             setErrors({ email: ' ', password: ' ' }); // Show field errors without text
-          } else if ((error as { message?: string }).message?.toLowerCase().includes('too many requests')) {
+          } else if (error.message?.toLowerCase().includes('too many requests')) {
             errorMessage = 'Too many sign-in attempts. Please wait a moment and try again.';
             toast.error(errorMessage);
           } else {
@@ -154,24 +154,24 @@ const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose }) => {
       } else {
         const loadingToast = toast.loading('Creating your account...');
         
-        const { data, error } = await signUp(formData.email, formData.password, formData.name);
+        const { error } = await signUp(formData.email, formData.password, { name: formData.name });
         
         toast.dismiss(loadingToast);
         
         if (!isMountedRef.current) return;
         
         if (error) {
-          let errorMessage = (error as { message?: string }).message || 'Failed to create account';
+          let errorMessage = error.message || 'Failed to create account';
           
-          if ((error as { message?: string }).message?.toLowerCase().includes('already registered') || (error as { message?: string }).message?.toLowerCase().includes('already exists')) {
+          if (error.message?.toLowerCase().includes('already registered') || error.message?.toLowerCase().includes('already exists')) {
             errorMessage = 'This email is already registered. Try signing in instead.';
             toast.error(errorMessage);
             setErrors({ email: ' ' });
-          } else if ((error as { message?: string }).message?.toLowerCase().includes('password')) {
+          } else if (error.message?.toLowerCase().includes('password')) {
             errorMessage = 'Password is too weak. Please use at least 6 characters.';
             toast.error(errorMessage);
             setErrors({ password: ' ' });
-          } else if ((error as { message?: string }).message?.toLowerCase().includes('email')) {
+          } else if (error.message?.toLowerCase().includes('email')) {
             errorMessage = 'Please enter a valid email address.';
             toast.error(errorMessage);
             setErrors({ email: ' ' });
@@ -288,8 +288,6 @@ const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose }) => {
               </p>
             </div>
 
-            {/* Toast notifications will handle errors */}
-
             {showConfirmation ? (
               <div className="space-y-6">
                 <div className="text-center p-6 bg-green-50 border border-green-200 rounded-lg">
@@ -331,121 +329,121 @@ const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose }) => {
             ) : (
               <>
                 <form onSubmit={handleSubmit} className="space-y-6">
-              {!isLogin && (
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-2">
-                    Full Name
-                  </label>
-                  <div className="relative">
-                    <UserIcon className={`absolute left-3 top-1/2 transform -translate-y-1/2 h-5 w-5 ${
-                      errors.name ? 'text-red-400' : 'text-gray-400'
-                    }`} />
-                    <input
-                      type="text"
-                      name="name"
-                      value={formData.name}
-                      onChange={handleInputChange}
-                      className={`w-full pl-10 pr-4 py-3 border rounded-lg focus:ring-2 transition-colors ${
-                        errors.name 
-                          ? 'border-red-300 focus:ring-red-500 focus:border-red-500' 
-                          : 'border-gray-300 focus:ring-primary-500 focus:border-primary-500'
-                      } disabled:opacity-50 disabled:cursor-not-allowed`}
-                      placeholder="Enter your full name"
-                      required={!isLogin}
-                      disabled={isSubmitting}
-                    />
-                  </div>
-                  {errors.name && (
-                    <motion.p
-                      initial={{ opacity: 0, y: -5 }}
-                      animate={{ opacity: 1, y: 0 }}
-                      className="mt-1 text-sm text-red-600 flex items-center"
-                    >
-                      <AlertCircle className="h-4 w-4 mr-1" />
-                      {errors.name}
-                    </motion.p>
+                  {!isLogin && (
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 mb-2">
+                        Full Name
+                      </label>
+                      <div className="relative">
+                        <UserIcon className={`absolute left-3 top-1/2 transform -translate-y-1/2 h-5 w-5 ${
+                          errors.name ? 'text-red-400' : 'text-gray-400'
+                        }`} />
+                        <input
+                          type="text"
+                          name="name"
+                          value={formData.name}
+                          onChange={handleInputChange}
+                          className={`w-full pl-10 pr-4 py-3 border rounded-lg focus:ring-2 transition-colors ${
+                            errors.name 
+                              ? 'border-red-300 focus:ring-red-500 focus:border-red-500' 
+                              : 'border-gray-300 focus:ring-primary-500 focus:border-primary-500'
+                          } disabled:opacity-50 disabled:cursor-not-allowed`}
+                          placeholder="Enter your full name"
+                          required={!isLogin}
+                          disabled={isSubmitting}
+                        />
+                      </div>
+                      {errors.name && (
+                        <motion.p
+                          initial={{ opacity: 0, y: -5 }}
+                          animate={{ opacity: 1, y: 0 }}
+                          className="mt-1 text-sm text-red-600 flex items-center"
+                        >
+                          <AlertCircle className="h-4 w-4 mr-1" />
+                          {errors.name}
+                        </motion.p>
+                      )}
+                    </div>
                   )}
-                </div>
-              )}
 
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-2">
-                  Email Address
-                </label>
-                <div className="relative">
-                  <Mail className={`absolute left-3 top-1/2 transform -translate-y-1/2 h-5 w-5 ${
-                    errors.email ? 'text-red-400' : 'text-gray-400'
-                  }`} />
-                  <input
-                    type="email"
-                    name="email"
-                    value={formData.email}
-                    onChange={handleInputChange}
-                    className={`w-full pl-10 pr-4 py-3 border rounded-lg focus:ring-2 transition-colors ${
-                      errors.email 
-                        ? 'border-red-300 focus:ring-red-500 focus:border-red-500' 
-                        : 'border-gray-300 focus:ring-primary-500 focus:border-primary-500'
-                    } disabled:opacity-50 disabled:cursor-not-allowed`}
-                    placeholder="Enter your email"
-                    required
-                    disabled={isSubmitting}
-                  />
-                </div>
-                {errors.email && (
-                  <motion.p
-                    initial={{ opacity: 0, y: -5 }}
-                    animate={{ opacity: 1, y: 0 }}
-                    className="mt-1 text-sm text-red-600 flex items-center"
-                  >
-                    <AlertCircle className="h-4 w-4 mr-1" />
-                    {errors.email}
-                  </motion.p>
-                )}
-              </div>
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-2">
+                      Email Address
+                    </label>
+                    <div className="relative">
+                      <Mail className={`absolute left-3 top-1/2 transform -translate-y-1/2 h-5 w-5 ${
+                        errors.email ? 'text-red-400' : 'text-gray-400'
+                      }`} />
+                      <input
+                        type="email"
+                        name="email"
+                        value={formData.email}
+                        onChange={handleInputChange}
+                        className={`w-full pl-10 pr-4 py-3 border rounded-lg focus:ring-2 transition-colors ${
+                          errors.email 
+                            ? 'border-red-300 focus:ring-red-500 focus:border-red-500' 
+                            : 'border-gray-300 focus:ring-primary-500 focus:border-primary-500'
+                        } disabled:opacity-50 disabled:cursor-not-allowed`}
+                        placeholder="Enter your email"
+                        required
+                        disabled={isSubmitting}
+                      />
+                    </div>
+                    {errors.email && (
+                      <motion.p
+                        initial={{ opacity: 0, y: -5 }}
+                        animate={{ opacity: 1, y: 0 }}
+                        className="mt-1 text-sm text-red-600 flex items-center"
+                      >
+                        <AlertCircle className="h-4 w-4 mr-1" />
+                        {errors.email}
+                      </motion.p>
+                    )}
+                  </div>
 
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-2">
-                  Password
-                </label>
-                <div className="relative">
-                  <Lock className={`absolute left-3 top-1/2 transform -translate-y-1/2 h-5 w-5 ${
-                    errors.password ? 'text-red-400' : 'text-gray-400'
-                  }`} />
-                  <input
-                    type={showPassword ? 'text' : 'password'}
-                    name="password"
-                    value={formData.password}
-                    onChange={handleInputChange}
-                    className={`w-full pl-10 pr-12 py-3 border rounded-lg focus:ring-2 transition-colors ${
-                      errors.password 
-                        ? 'border-red-300 focus:ring-red-500 focus:border-red-500' 
-                        : 'border-gray-300 focus:ring-primary-500 focus:border-primary-500'
-                    } disabled:opacity-50 disabled:cursor-not-allowed`}
-                    placeholder="Enter your password"
-                    required
-                    disabled={isSubmitting}
-                    minLength={6}
-                  />
-                  <button
-                    type="button"
-                    onClick={() => setShowPassword(!showPassword)}
-                    className="absolute right-3 top-1/2 transform -translate-y-1/2 text-gray-400 hover:text-gray-600 disabled:opacity-50"
-                    disabled={isSubmitting}
-                  >
-                    {showPassword ? <EyeOff className="h-5 w-5" /> : <Eye className="h-5 w-5" />}
-                  </button>
-                </div>
-                {errors.password && (
-                  <motion.p
-                    initial={{ opacity: 0, y: -5 }}
-                    animate={{ opacity: 1, y: 0 }}
-                    className="mt-1 text-sm text-red-600 flex items-center"
-                  >
-                    <AlertCircle className="h-4 w-4 mr-1" />
-                    {errors.password}
-                  </motion.p>
-                )}
-              </div>
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-2">
+                      Password
+                    </label>
+                    <div className="relative">
+                      <Lock className={`absolute left-3 top-1/2 transform -translate-y-1/2 h-5 w-5 ${
+                        errors.password ? 'text-red-400' : 'text-gray-400'
+                      }`} />
+                      <input
+                        type={showPassword ? 'text' : 'password'}
+                        name="password"
+                        value={formData.password}
+                        onChange={handleInputChange}
+                        className={`w-full pl-10 pr-12 py-3 border rounded-lg focus:ring-2 transition-colors ${
+                          errors.password 
+                            ? 'border-red-300 focus:ring-red-500 focus:border-red-500' 
+                            : 'border-gray-300 focus:ring-primary-500 focus:border-primary-500'
+                        } disabled:opacity-50 disabled:cursor-not-allowed`}
+                        placeholder="Enter your password"
+                        required
+                        disabled={isSubmitting}
+                        minLength={6}
+                      />
+                      <button
+                        type="button"
+                        onClick={() => setShowPassword(!showPassword)}
+                        className="absolute right-3 top-1/2 transform -translate-y-1/2 text-gray-400 hover:text-gray-600 disabled:opacity-50"
+                        disabled={isSubmitting}
+                      >
+                        {showPassword ? <EyeOff className="h-5 w-5" /> : <Eye className="h-5 w-5" />}
+                      </button>
+                    </div>
+                    {errors.password && (
+                      <motion.p
+                        initial={{ opacity: 0, y: -5 }}
+                        animate={{ opacity: 1, y: 0 }}
+                        className="mt-1 text-sm text-red-600 flex items-center"
+                      >
+                        <AlertCircle className="h-4 w-4 mr-1" />
+                        {errors.password}
+                      </motion.p>
+                    )}
+                  </div>
 
                   <motion.button
                     whileHover={{ scale: isSubmitting ? 1 : 1.02 }}
@@ -490,41 +488,6 @@ const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose }) => {
               </div>
             </div>
           </motion.div>
-          
-          {/* Toast notifications */}
-          <Toaster
-            position="top-center"
-            toastOptions={{
-              duration: 4000,
-              style: {
-                background: '#fff',
-                color: '#374151',
-                boxShadow: '0 10px 15px -3px rgba(0, 0, 0, 0.1), 0 4px 6px -2px rgba(0, 0, 0, 0.05)',
-                border: '1px solid #e5e7eb',
-                borderRadius: '0.75rem',
-                fontSize: '0.875rem',
-                fontWeight: '500',
-              },
-              success: {
-                iconTheme: {
-                  primary: '#10b981',
-                  secondary: '#fff',
-                },
-              },
-              error: {
-                iconTheme: {
-                  primary: '#ef4444',
-                  secondary: '#fff',
-                },
-              },
-              loading: {
-                iconTheme: {
-                  primary: '#6366f1',
-                  secondary: '#fff',
-                },
-              },
-            }}
-          />
         </div>
       )}
     </AnimatePresence>

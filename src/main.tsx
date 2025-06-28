@@ -1,16 +1,13 @@
 import { StrictMode } from 'react';
 import { createRoot } from 'react-dom/client';
 import App from './App.tsx';
-import { AuthProvider } from './contexts/AuthContext';
-import { BookmarkProvider } from './contexts/BookmarkContext';
+import AuthLoader from './components/AuthLoader.tsx';
 import './index.css';
 
 createRoot(document.getElementById('root')!).render(
   <StrictMode>
-    <AuthProvider>
-      <BookmarkProvider>
-        <App />
-      </BookmarkProvider>
-    </AuthProvider>
+    <AuthLoader>
+      <App />
+    </AuthLoader>
   </StrictMode>
 );

@@ -1,10 +1,10 @@
 import React, { useState } from 'react';
 import { motion } from 'framer-motion';
-import { Brain, Search, Menu, X, User, BookOpen, Star, Plus, Home, BarChart3 } from 'lucide-react';
-import { User as UserType } from '../types';
+import { Brain, Menu, X, User, BookOpen, Star, Plus, Home, BarChart3 } from 'lucide-react';
+import { useAuthStore } from '../store/authStore';
 
 interface HeaderProps {
-  currentUser: UserType | null;
+  currentUser: any | null;
   onNavigate: (page: 'home' | 'dashboard' | 'profile' | 'submit-tool') => void;
   onAuthClick: () => void;
   onLogout: () => void;
@@ -20,6 +20,7 @@ const Header: React.FC<HeaderProps> = ({
 }) => {
   const [isMenuOpen, setIsMenuOpen] = useState(false);
   const [isProfileMenuOpen, setIsProfileMenuOpen] = useState(false);
+  const { loading } = useAuthStore();
 
   const navigationItems = [
     { id: 'home', label: 'Discover', icon: Home },
@@ -69,7 +70,9 @@ const Header: React.FC<HeaderProps> = ({
 
           {/* Actions - Desktop */}
           <div className="hidden md:flex items-center space-x-4">
-            {currentUser ? (
+            {loading ? (
+              <div className="h-10 w-24 bg-gray-200 rounded-lg animate-pulse"></div>
+            ) : currentUser ? (
               <div className="relative">
                 <motion.button
                   whileHover={{ scale: 1.05 }}
@@ -78,11 +81,11 @@ const Header: React.FC<HeaderProps> = ({
                   className="flex items-center space-x-3 p-2 rounded-lg hover:bg-gray-100 transition-colors"
                 >
                   <img
-                    src={currentUser.avatar}
-                    alt={currentUser.name}
+                    src={currentUser.avatar || "https://images.pexels.com/photos/220453/pexels-photo-220453.jpeg?auto=compress&cs=tinysrgb&w=100"}
+                    alt={currentUser.name || "User"}
                     className="w-8 h-8 rounded-full"
                   />
-                  <span className="font-medium text-gray-900">{currentUser.name}</span>
+                  <span className="font-medium text-gray-900">{currentUser.name || "User"}</span>
                 </motion.button>
 
                 {isProfileMenuOpen && (
@@ -183,15 +186,17 @@ const Header: React.FC<HeaderProps> = ({
               ))}
               
               <div className="pt-4 border-t border-gray-200">
-                {currentUser ? (
+                {loading ? (
+                  <div className="h-10 w-full bg-gray-200 rounded-lg animate-pulse"></div>
+                ) : currentUser ? (
                   <div className="space-y-2">
                     <div className="flex items-center space-x-3 p-2">
                       <img
-                        src={currentUser.avatar}
-                        alt={currentUser.name}
+                        src={currentUser.avatar || "https://images.pexels.com/photos/220453/pexels-photo-220453.jpeg?auto=compress&cs=tinysrgb&w=100"}
+                        alt={currentUser.name || "User"}
                         className="w-8 h-8 rounded-full"
                       />
-                      <span className="font-medium text-gray-900">{currentUser.name}</span>
+                      <span className="font-medium text-gray-900">{currentUser.name || "User"}</span>
                     </div>
                     <button
                       onClick={() => {

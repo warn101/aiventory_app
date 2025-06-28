@@ -1,7 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { motion } from 'framer-motion';
 import { CheckCircle, XCircle, Mail, Loader } from 'lucide-react';
-import { useAuth } from '../hooks/useAuth';
+import { supabase } from '../lib/supabase';
 
 interface EmailConfirmationProps {
   token?: string;
@@ -9,7 +9,6 @@ interface EmailConfirmationProps {
 }
 
 const EmailConfirmation: React.FC<EmailConfirmationProps> = ({ token, onComplete }) => {
-  const { confirmEmail } = useAuth();
   const [status, setStatus] = useState<'loading' | 'success' | 'error'>('loading');
   const [error, setError] = useState<string | null>(null);
 
@@ -22,7 +21,10 @@ const EmailConfirmation: React.FC<EmailConfirmationProps> = ({ token, onComplete
       }
 
       try {
-        const { error } = await confirmEmail(token);
+        const { data, error } = await supabase.auth.verifyOtp({
+          token_hash: token,
+          type: 'signup'
+        });
         
         if (error) {
           setStatus('error');
@@ -41,7 +43,7 @@ const EmailConfirmation: React.FC<EmailConfirmationProps> = ({ token, onComplete
     };
 
     handleConfirmation();
-  }, [token, confirmEmail, onComplete]);
+  }, [token, onComplete]);
 
   const getIcon = () => {
     switch (status) {
