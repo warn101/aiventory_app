@@ -15,6 +15,7 @@ import {
   Palette
 } from 'lucide-react';
 import { User } from '../types';
+import ImageUpload from '../components/ImageUpload';
 
 interface ProfileProps {
   user: User;
@@ -24,13 +25,15 @@ interface ProfileProps {
 const Profile: React.FC<ProfileProps> = ({ user, onUpdateUser }) => {
   const [isEditing, setIsEditing] = useState(false);
   const [activeTab, setActiveTab] = useState<'profile' | 'preferences' | 'security'>('profile');
+  const [showAvatarUpload, setShowAvatarUpload] = useState(false);
   const [formData, setFormData] = useState({
     name: user.name,
     email: user.email,
     bio: 'AI enthusiast and developer passionate about discovering innovative tools.',
     location: 'San Francisco, CA',
     website: 'https://example.com',
-    joinDate: '2024-01-01'
+    joinDate: '2024-01-01',
+    avatar: user.avatar
   });
 
   const [preferences, setPreferences] = useState({
@@ -44,10 +47,20 @@ const Profile: React.FC<ProfileProps> = ({ user, onUpdateUser }) => {
     const updatedUser: User = {
       ...user,
       name: formData.name,
-      email: formData.email
+      email: formData.email,
+      avatar: formData.avatar
     };
     onUpdateUser(updatedUser);
     setIsEditing(false);
+    setShowAvatarUpload(false);
+  };
+
+  const handleAvatarUpload = (url: string) => {
+    setFormData({
+      ...formData,
+      avatar: url
+    });
+    setShowAvatarUpload(false);
   };
 
   const handleInputChange = (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement>) => {
@@ -71,14 +84,42 @@ const Profile: React.FC<ProfileProps> = ({ user, onUpdateUser }) => {
             <div className="flex items-end space-x-6 -mt-16">
               <div className="relative">
                 <img
-                  src={user.avatar}
+                  src={formData.avatar}
                   alt={user.name}
-                  className="w-32 h-32 rounded-full border-4 border-white shadow-lg"
+                  className="w-32 h-32 rounded-full border-4 border-white shadow-lg object-cover"
                 />
-                <button className="absolute bottom-2 right-2 p-2 bg-primary-600 text-white rounded-full hover:bg-primary-700 transition-colors">
-                  <Camera className="h-4 w-4" />
-                </button>
+                {isEditing && (
+                  <button 
+                    onClick={() => setShowAvatarUpload(!showAvatarUpload)}
+                    className="absolute bottom-2 right-2 p-2 bg-primary-600 text-white rounded-full hover:bg-primary-700 transition-colors"
+                  >
+                    <Camera className="h-4 w-4" />
+                  </button>
+                )}
               </div>
+              
+              {/* Avatar Upload Modal */}
+              {showAvatarUpload && (
+                <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+                  <div className="bg-white rounded-lg p-6 max-w-md w-full mx-4">
+                    <div className="flex justify-between items-center mb-4">
+                      <h3 className="text-lg font-semibold">Upload Avatar</h3>
+                      <button
+                        onClick={() => setShowAvatarUpload(false)}
+                        className="text-gray-400 hover:text-gray-600"
+                      >
+                        <X className="h-5 w-5" />
+                      </button>
+                    </div>
+                    <ImageUpload
+                      onImageUpload={handleAvatarUpload}
+                      currentImage={formData.avatar}
+                      bucket="avatars"
+                      className="mb-4"
+                    />
+                  </div>
+                </div>
+              )}
               
               <div className="flex-1 pt-4">
                 <div className="flex items-center justify-between">

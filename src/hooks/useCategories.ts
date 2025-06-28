@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import React, { useState, useEffect } from 'react';
 import { db } from '../lib/supabase';
 import { Category } from '../types';
 import { categories as mockCategories } from '../data/mockData';
@@ -7,16 +7,24 @@ export const useCategories = () => {
   const [categories, setCategories] = useState<Category[]>(mockCategories); // Start with mock data
   const [loading, setLoading] = useState(false); // Don't start loading
   const [error, setError] = useState<string | null>(null);
+  const [isLoadingRef, setIsLoadingRef] = useState(false); // Prevent concurrent requests
 
   const loadCategories = async () => {
+    // Prevent concurrent requests
+    if (isLoadingRef) {
+      console.log('Categories: Already loading, skipping...');
+      return;
+    }
+    
     try {
       console.log('Categories: Loading categories...');
+      setIsLoadingRef(true);
       setLoading(true);
       setError(null);
 
-      // Try to load from Supabase with timeout
+      // Try to load from Supabase with 5s timeout (connection test showed <300ms)
       const timeoutPromise = new Promise((resolve) => 
-        setTimeout(() => resolve({ data: null, error: new Error('Categories load timeout') }), 15000)
+        setTimeout(() => resolve({ data: null, error: new Error('Categories load timeout') }), 5000)
       );
 
       const categoriesPromise = db.getCategories();
@@ -24,9 +32,9 @@ export const useCategories = () => {
       const { data, error: fetchError } = await Promise.race([categoriesPromise, timeoutPromise]) as any;
 
       if (fetchError) {
-        console.error('Categories: Supabase error:', fetchError);
+        console.warn('Categories: Using offline data due to:', fetchError.message);
         setCategories(mockCategories);
-        setError('Using offline data. Some features may be limited.');
+        setError(null); // Don't show error to user, just use fallback
         return;
       }
 
@@ -52,6 +60,7 @@ export const useCategories = () => {
       setError('Connection error. Using offline data.');
     } finally {
       setLoading(false);
+      setIsLoadingRef(false);
     }
   };
 

@@ -1,4 +1,4 @@
-import { createClient } from '@supabase/supabase-js';
+import { createClient, Session } from '@supabase/supabase-js';
 import { Database } from '../types/database';
 
 const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
@@ -18,21 +18,59 @@ if (!supabaseUrl || !supabaseAnonKey) {
 
 export const supabase = createClient<Database>(
   supabaseUrl || 'https://placeholder.supabase.co',
-  supabaseAnonKey || 'placeholder-key'
+  supabaseAnonKey || 'placeholder-key',
+  {
+    auth: {
+      // Enable automatic session persistence
+      persistSession: true,
+      // Enable automatic token refresh
+      autoRefreshToken: true,
+      // Detect session in URL (for email confirmations)
+      detectSessionInUrl: true,
+      // Storage key for session data
+      storageKey: 'supabase.auth.token',
+      // Use localStorage for session persistence
+      storage: {
+        getItem: (key: string) => {
+          if (typeof window !== 'undefined') {
+            return window.localStorage.getItem(key);
+          }
+          return null;
+        },
+        setItem: (key: string, value: string) => {
+          if (typeof window !== 'undefined') {
+            window.localStorage.setItem(key, value);
+          }
+        },
+        removeItem: (key: string) => {
+          if (typeof window !== 'undefined') {
+            window.localStorage.removeItem(key);
+          }
+        },
+      },
+    },
+    // Global configuration
+    global: {
+      headers: {
+        'X-Client-Info': 'supabase-js-web',
+      },
+    },
+  }
 );
 
 // Test connection with better error handling
-supabase.from('tools').select('count', { count: 'exact', head: true })
-  .then(({ count, error }) => {
+(async () => {
+  try {
+    const { count, error } = await supabase.from('tools').select('count', { count: 'exact', head: true });
     if (error) {
       console.warn('Supabase connection test failed:', error.message);
     } else {
       console.log('Supabase connected successfully. Tools count:', count);
     }
-  })
-  .catch(err => {
-    console.warn('Supabase connection test error:', err.message);
-  });
+  } catch (err) {
+    console.warn('Supabase connection test error:', (err as Error).message);
+  }
+})();
 
 // Auth helpers with improved error handling
 export const auth = {
@@ -59,15 +97,53 @@ export const auth = {
 
   signIn: async (email: string, password: string) => {
     try {
-      console.log('Auth: Signing in user');
+      console.log('🔑 Auth: Starting sign-in process for:', email);
+      console.log('🧹 Auth: Clearing stale sessions...');
+      
+      // Step 1: Clear any stale sessions before attempting sign-in
+      await auth.clearStaleSession();
+      console.log('✅ Auth: Stale sessions cleared');
+      
+      // Step 2: Attempt sign-in with fresh state
+      console.log('🚀 Auth: Attempting Supabase sign-in...');
       const { data, error } = await supabase.auth.signInWithPassword({
         email,
         password
       });
-      console.log('Auth: Signin result:', { success: !!data.user, error: error?.message });
+      
+      console.log('📊 Auth: Supabase response:', {
+        hasUser: !!data?.user,
+        hasSession: !!data?.session,
+        errorCode: error?.message,
+        userId: data?.user?.id
+      });
+      
+      // Step 3: Validate the session was properly established
+      if (data.session && !error) {
+        console.log('🔍 Auth: Validating session...');
+        const isValidSession = await auth.validateSession(data.session);
+        if (!isValidSession) {
+          console.warn('❌ Auth: Session validation failed, clearing and retrying');
+          await auth.clearStaleSession();
+          return { 
+            data: null, 
+            error: { message: 'Session validation failed. Please try again.' }
+          };
+        }
+        console.log('✅ Auth: Session validation passed');
+      }
+      
+      if (error) {
+        console.error('❌ Auth: Sign-in failed:', error);
+      } else {
+        console.log('🎉 Auth: Sign-in successful!');
+      }
+      
       return { data, error };
     } catch (err) {
-      console.error('Auth: Signin exception:', err);
+      console.error('💥 Auth: Signin exception:', err);
+      // Clear any partial session state on error
+      await auth.clearStaleSession();
       return { 
         data: null, 
         error: { message: 'Network error during signin. Please try again.' }
@@ -77,12 +153,30 @@ export const auth = {
 
   signOut: async () => {
     try {
-      console.log('Auth: Signing out user');
+      console.log('🚪 Auth: Starting sign-out process...');
+      
+      // Step 1: Sign out from Supabase
+      console.log('🔓 Auth: Calling Supabase signOut...');
       const { error } = await supabase.auth.signOut();
-      console.log('Auth: Signout result:', { error: error?.message });
+      
+      if (error) {
+        console.warn('⚠️ Auth: Supabase signOut had error:', error.message);
+      } else {
+        console.log('✅ Auth: Supabase signOut successful');
+      }
+      
+      // Step 2: Force clear all auth-related storage (even if signOut had errors)
+      console.log('🧹 Auth: Clearing all auth storage...');
+      await auth.clearAllAuthStorage();
+      console.log('✅ Auth: All auth storage cleared');
+      
+      console.log('🎉 Auth: Sign-out process completed');
       return { error };
     } catch (err) {
-      console.error('Auth: Signout exception:', err);
+      console.error('💥 Auth: Signout exception:', err);
+      // Always clear storage even on exception
+      console.log('🧹 Auth: Clearing storage after exception...');
+      await auth.clearAllAuthStorage();
       return { 
         error: { message: 'Network error during signout. Please try again.' }
       };
@@ -103,8 +197,198 @@ export const auth = {
     }
   },
 
-  onAuthStateChange: (callback: (event: string, session: any) => void) => {
+  onAuthStateChange: (callback: (event: string, session: Session | null) => void) => {
     return supabase.auth.onAuthStateChange(callback);
+  },
+
+  // Session management utilities
+  clearStaleSession: async () => {
+    try {
+      console.log('Auth: Clearing stale session...');
+      
+      // Check if there's a current session
+      const { data: { session } } = await supabase.auth.getSession();
+      
+      if (session) {
+        // Validate if session is actually valid
+        const isValid = await auth.validateSession(session);
+        if (!isValid) {
+          console.log('Auth: Found stale session, clearing...');
+          await supabase.auth.signOut({ scope: 'local' }); // Local signout only
+          await auth.clearAllAuthStorage();
+        }
+      }
+      
+      // Clear any orphaned localStorage entries
+      await auth.clearAllAuthStorage();
+      
+    } catch (err) {
+      console.warn('Auth: Error clearing stale session:', err);
+      // Force clear storage even on error
+      await auth.clearAllAuthStorage();
+    }
+  },
+
+  validateSession: async (session: any) => {
+    try {
+      // Check if session is expired
+      if (session.expires_at && Date.now() / 1000 > session.expires_at) {
+        console.log('Auth: Session expired');
+        return false;
+      }
+      
+      // Verify session with server
+      const { data: { user }, error } = await supabase.auth.getUser(session.access_token);
+      
+      if (error || !user) {
+        console.log('Auth: Session validation failed:', error?.message);
+        return false;
+      }
+      
+      return true;
+    } catch (err) {
+      console.warn('Auth: Session validation error:', err);
+      return false;
+    }
+  },
+
+  clearAllAuthStorage: async () => {
+    try {
+      console.log('Auth: Clearing all auth storage...');
+      
+      // Clear Supabase-specific localStorage keys
+      const keysToRemove = [];
+      for (let i = 0; i < localStorage.length; i++) {
+        const key = localStorage.key(i);
+        if (key && (key.startsWith('supabase.auth.token') || 
+                   key.startsWith('sb-') || 
+                   key.includes('supabase'))) {
+          keysToRemove.push(key);
+        }
+      }
+      
+      keysToRemove.forEach(key => {
+        localStorage.removeItem(key);
+        console.log(`Auth: Removed localStorage key: ${key}`);
+      });
+      
+      // Clear sessionStorage as well
+      const sessionKeysToRemove = [];
+      for (let i = 0; i < sessionStorage.length; i++) {
+        const key = sessionStorage.key(i);
+        if (key && (key.startsWith('supabase.auth.token') || 
+                   key.startsWith('sb-') || 
+                   key.includes('supabase'))) {
+          sessionKeysToRemove.push(key);
+        }
+      }
+      
+      sessionKeysToRemove.forEach(key => {
+        sessionStorage.removeItem(key);
+        console.log(`Auth: Removed sessionStorage key: ${key}`);
+      });
+      
+    } catch (err) {
+      console.warn('Auth: Error clearing auth storage:', err);
+    }
+  },
+
+  // Development utility for manual session clearing
+  devClearAllAuth: async () => {
+    if (process.env.NODE_ENV !== 'development') {
+      console.warn('Auth: devClearAllAuth is only available in development mode');
+      return;
+    }
+    
+    console.log('Auth: [DEV] Manually clearing all authentication data...');
+    
+    try {
+      // Sign out from Supabase
+      await supabase.auth.signOut();
+      
+      // Clear all storage
+      await auth.clearAllAuthStorage();
+      
+      // Clear all localStorage and sessionStorage (nuclear option)
+      localStorage.clear();
+      sessionStorage.clear();
+      
+      console.log('Auth: [DEV] All authentication data cleared. Reload the page.');
+      
+      // Optionally reload the page
+      if (typeof window !== 'undefined') {
+        window.location.reload();
+      }
+    } catch (err) {
+      console.error('Auth: [DEV] Error during manual clear:', err);
+    }
+  },
+
+  verifyOtp: async (params: { token_hash: string; type: string }) => {
+    try {
+      console.log('Auth: Verifying OTP token');
+      const { data, error } = await supabase.auth.verifyOtp({
+        token_hash: params.token_hash,
+        type: params.type as 'signup'
+      });
+      console.log('Auth: OTP verification result:', { success: !!data.user, error: error?.message });
+      return { data, error };
+    } catch (err) {
+      console.error('Auth: OTP verification exception:', err);
+      return { 
+        data: null, 
+        error: { message: 'Network error during email confirmation. Please try again.' }
+      };
+    }
+  }
+};
+
+// Optimized bookmark functions with performance improvements
+export const getBookmarks = async (userId: string) => {
+  try {
+    const { data, error } = await supabase
+      .from('bookmarks')
+      .select(`
+        tool_id,
+        created_at,
+        tools (
+          id,
+          name,
+          description,
+          category,
+          pricing,
+          rating,
+          reviews_count,
+          tags,
+          website_url,
+          featured,
+          verified
+        )
+      `)
+      .eq('user_id', userId)
+      .order('created_at', { ascending: false });
+
+    if (error) {
+      console.error('Error fetching bookmarks:', error);
+      throw error;
+    }
+
+    return { data, error: null };
+  } catch (error) {
+    console.error('Database error in getBookmarks:', error);
+    return { data: null, error };
+  }
+};
+
+// Legacy function for backward compatibility
+export const fetchBookmarks = async (userId: string) => {
+  try {
+    const { data, error } = await getBookmarks(userId);
+    if (error) throw error;
+    return data?.map(bookmark => bookmark.tool_id) || [];
+  } catch (error) {
+    console.error('Database error in fetchBookmarks:', error);
+    throw error;
   }
 };
 
@@ -149,10 +433,7 @@ export const db = {
 
       const result = await query;
       
-      console.log('DB: Tools query result:', { 
-        count: result.data?.length || 0, 
-        error: result.error?.message 
-      });
+
       
       return result;
     } catch (err) {
@@ -173,10 +454,7 @@ export const db = {
         .eq('id', id)
         .single();
         
-      console.log('DB: Tool query result:', { 
-        found: !!result.data, 
-        error: result.error?.message 
-      });
+
       
       return result;
     } catch (err) {
@@ -188,19 +466,22 @@ export const db = {
     }
   },
 
-  createTool: async (tool: any) => {
+  createTool: async (tool: Database['public']['Tables']['tools']['Insert']) => {
     try {
-      console.log('DB: Creating tool:', tool.name);
+      console.log('DB: Creating tool with data:', tool);
+      console.log('DB: Current user session:', await supabase.auth.getSession());
+      
       const result = await supabase
         .from('tools')
         .insert([tool])
         .select()
         .single();
         
-      console.log('DB: Tool creation result:', { 
-        success: !!result.data, 
-        error: result.error?.message 
-      });
+
+      
+      if (result.error) {
+        console.error('DB: Detailed error:', result.error);
+      }
       
       return result;
     } catch (err) {
@@ -212,7 +493,7 @@ export const db = {
     }
   },
 
-  updateTool: async (id: string, updates: any) => {
+  updateTool: async (id: string, updates: Database['public']['Tables']['tools']['Update']) => {
     try {
       console.log('DB: Updating tool:', id);
       const result = await supabase
@@ -222,10 +503,7 @@ export const db = {
         .select()
         .single();
         
-      console.log('DB: Tool update result:', { 
-        success: !!result.data, 
-        error: result.error?.message 
-      });
+
       
       return result;
     } catch (err) {
@@ -246,10 +524,7 @@ export const db = {
         .select('*')
         .order('name');
         
-      console.log('DB: Categories query result:', { 
-        count: result.data?.length || 0, 
-        error: result.error?.message 
-      });
+
       
       return result;
     } catch (err) {
@@ -271,10 +546,7 @@ export const db = {
         .eq('id', userId)
         .single();
         
-      console.log('DB: Profile query result:', { 
-        found: !!result.data, 
-        error: result.error?.message 
-      });
+
       
       return result;
     } catch (err) {
@@ -286,7 +558,7 @@ export const db = {
     }
   },
 
-  createProfile: async (profile: any) => {
+  createProfile: async (profile: Database['public']['Tables']['profiles']['Insert']) => {
     try {
       console.log('DB: Creating profile for user:', profile.id);
       const result = await supabase
@@ -295,10 +567,7 @@ export const db = {
         .select()
         .single();
         
-      console.log('DB: Profile creation result:', { 
-        success: !!result.data, 
-        error: result.error?.message 
-      });
+
       
       return result;
     } catch (err) {
@@ -310,7 +579,7 @@ export const db = {
     }
   },
 
-  updateProfile: async (userId: string, updates: any) => {
+  updateProfile: async (userId: string, updates: Database['public']['Tables']['profiles']['Update']) => {
     try {
       console.log('DB: Updating profile for user:', userId);
       const result = await supabase
@@ -320,10 +589,7 @@ export const db = {
         .select()
         .single();
         
-      console.log('DB: Profile update result:', { 
-        success: !!result.data, 
-        error: result.error?.message 
-      });
+
       
       return result;
     } catch (err) {
@@ -338,45 +604,117 @@ export const db = {
   // Bookmarks
   getBookmarks: async (userId: string) => {
     try {
-      console.log('DB: Getting bookmarks for user:', userId);
+      console.log('🔍 DB: Fetching bookmarks for user:', userId);
+      
+      // Step 1: Verify user authentication
+      const { data: { user }, error: authError } = await supabase.auth.getUser();
+      if (authError || !user) {
+        console.error('❌ DB: User not authenticated:', authError);
+        return { data: [], error: new Error('User not authenticated') };
+      }
+      
+      // Step 2: Check if user exists in profiles (optional, for additional validation)
+      const { data: userProfile } = await supabase
+        .from('profiles')
+        .select('id')
+        .eq('id', userId)
+        .single();
+      
+      if (!userProfile) {
+        console.error('❌ DB: User profile not found:', userId);
+        return { data: [], error: new Error('User profile not found') };
+      }
+      
+      // Step 3: Get bookmarks with explicit LEFT JOIN and proper ordering
       const result = await supabase
         .from('bookmarks')
         .select(`
-          *,
-          tools (*)
+          id,
+          user_id,
+          tool_id,
+          created_at,
+          tools (
+            id,
+            name,
+            description,
+            category,
+            pricing,
+            rating,
+            reviews_count,
+            tags,
+            website_url,
+            featured,
+            verified,
+            created_at,
+            updated_at
+          )
         `)
-        .eq('user_id', userId);
-        
-      console.log('DB: Bookmarks query result:', { 
-        count: result.data?.length || 0, 
-        error: result.error?.message 
-      });
+        .eq('user_id', userId)
+        .order('created_at', { ascending: false });
       
+      if (result.error) {
+        console.error('❌ DB: Supabase query error:', result.error);
+        throw result.error;
+      }
+      
+      console.log('✅ DB: Bookmarks fetched successfully:', result.data?.length || 0);
       return result;
+      
     } catch (err) {
-      console.error('DB: Bookmarks query exception:', err);
+      console.error('💥 DB: Bookmarks query exception:', err);
       return { 
         data: [], 
-        error: { message: 'Failed to fetch bookmarks from database' }
+        error: err instanceof Error ? err : new Error('Failed to fetch bookmarks from database')
       };
     }
   },
 
   addBookmark: async (userId: string, toolId: string) => {
     try {
-      console.log('DB: Adding bookmark:', { userId, toolId });
+      // Check auth state
+      const { data: { user } } = await supabase.auth.getUser();
+      
+      // First check if bookmark already exists
+      const existingBookmark = await supabase
+        .from('bookmarks')
+        .select('id')
+        .eq('user_id', userId)
+        .eq('tool_id', toolId)
+        .single();
+      
+      if (existingBookmark.data) {
+
+        return {
+          data: [existingBookmark.data],
+          error: null,
+          alreadyExists: true
+        };
+      }
+      
+
+      // Use upsert to handle race conditions
       const result = await supabase
         .from('bookmarks')
-        .insert([{ user_id: userId, tool_id: toolId }]);
+        .upsert([{ user_id: userId, tool_id: toolId }], {
+          onConflict: 'user_id,tool_id',
+          ignoreDuplicates: false
+        })
+        .select();
         
-      console.log('DB: Bookmark add result:', { 
-        success: !result.error, 
-        error: result.error?.message 
-      });
+
+      
+      // Check for silent failures
+      if (!result.error && (!result.data || result.data.length === 0)) {
+        console.warn('⚠️ DB: Silent failure detected - no rows inserted despite no error');
+        return {
+          data: null,
+          error: { message: 'Silent failure: Bookmark not inserted (likely RLS policy violation)' }
+        };
+      }
       
       return result;
     } catch (err) {
-      console.error('DB: Bookmark add exception:', err);
+      console.error('💥 DB: Bookmark add exception:', err);
       return { 
         data: null, 
         error: { message: 'Failed to add bookmark to database' }
@@ -386,24 +724,26 @@ export const db = {
 
   removeBookmark: async (userId: string, toolId: string) => {
     try {
-      console.log('DB: Removing bookmark:', { userId, toolId });
+      console.log('🗑️ DB: Removing bookmark for user:', userId, 'tool:', toolId);
+
       const result = await supabase
         .from('bookmarks')
         .delete()
         .eq('user_id', userId)
         .eq('tool_id', toolId);
         
-      console.log('DB: Bookmark remove result:', { 
-        success: !result.error, 
-        error: result.error?.message 
-      });
+      if (result.error) {
+        console.error('❌ DB: Remove bookmark error:', result.error);
+        throw result.error;
+      }
       
+      console.log('✅ DB: Bookmark removed successfully:', result.data);
       return result;
     } catch (err) {
-      console.error('DB: Bookmark remove exception:', err);
+      console.error('💥 DB: Bookmark remove exception:', err);
       return { 
         data: null, 
-        error: { message: 'Failed to remove bookmark from database' }
+        error: err instanceof Error ? err : new Error('Failed to remove bookmark from database')
       };
     }
   },
@@ -437,10 +777,7 @@ export const db = {
         .eq('tool_id', toolId)
         .order('created_at', { ascending: false });
         
-      console.log('DB: Reviews query result:', { 
-        count: result.data?.length || 0, 
-        error: result.error?.message 
-      });
+
       
       return result;
     } catch (err) {
@@ -452,7 +789,7 @@ export const db = {
     }
   },
 
-  createReview: async (review: any) => {
+  createReview: async (review: Database['public']['Tables']['reviews']['Insert']) => {
     try {
       console.log('DB: Creating review');
       const result = await supabase
@@ -461,10 +798,7 @@ export const db = {
         .select()
         .single();
         
-      console.log('DB: Review creation result:', { 
-        success: !!result.data, 
-        error: result.error?.message 
-      });
+
       
       return result;
     } catch (err) {
@@ -483,15 +817,12 @@ export const db = {
         .from('reviews')
         .select(`
           *,
-          tools (name, image_url)
+          tools (name)
         `)
         .eq('user_id', userId)
         .order('created_at', { ascending: false });
         
-      console.log('DB: User reviews query result:', { 
-        count: result.data?.length || 0, 
-        error: result.error?.message 
-      });
+
       
       return result;
     } catch (err) {
@@ -500,6 +831,212 @@ export const db = {
         data: [], 
         error: { message: 'Failed to fetch user reviews from database' }
       };
+    }
+  },
+
+  updateReview: async (reviewId: string, updates: Database['public']['Tables']['reviews']['Update']) => {
+    try {
+      console.log('DB: Updating review:', reviewId);
+      const result = await supabase
+        .from('reviews')
+        .update(updates)
+        .eq('id', reviewId)
+        .select()
+        .single();
+        
+      return result;
+    } catch (err) {
+      console.error('DB: Review update exception:', err);
+      return { 
+        data: null, 
+        error: { message: 'Failed to update review in database' }
+      };
+    }
+  },
+
+  deleteReview: async (reviewId: string) => {
+    try {
+      console.log('DB: Deleting review:', reviewId);
+      const result = await supabase
+        .from('reviews')
+        .delete()
+        .eq('id', reviewId);
+        
+      return result;
+    } catch (err) {
+      console.error('DB: Review delete exception:', err);
+      return { 
+        data: null, 
+        error: { message: 'Failed to delete review from database' }
+      };
+    }
+  },
+
+  // Likes
+  getLikes: async (toolId: string) => {
+    try {
+      console.log('DB: Getting likes for tool:', toolId);
+      const result = await supabase
+        .from('likes')
+        .select('*')
+        .eq('tool_id', toolId);
+        
+      return result;
+    } catch (err) {
+      console.error('DB: Likes query exception:', err);
+      return { 
+        data: [], 
+        error: { message: 'Failed to fetch likes from database' }
+      };
+    }
+  },
+
+  getToolLikes: async (toolId: string, userId?: string) => {
+    try {
+      console.log('DB: Getting tool likes count and user status:', toolId, userId);
+      const { data, error } = await supabase
+        .rpc('get_tool_likes', {
+          tool_uuid: toolId,
+          user_uuid: userId || null
+        });
+        
+      if (error) {
+        console.error('DB: Tool likes RPC error:', error);
+        return { 
+          data: { like_count: 0, user_liked: false }, 
+          error 
+        };
+      }
+      
+      return { 
+        data: data || { like_count: 0, user_liked: false }, 
+        error: null 
+      };
+    } catch (err) {
+      console.error('DB: Tool likes query exception:', err);
+      return { 
+        data: { like_count: 0, user_liked: false }, 
+        error: { message: 'Failed to fetch tool likes from database' }
+      };
+    }
+  },
+
+  toggleLike: async (toolId: string, userId: string) => {
+    try {
+      console.log('DB: Toggling like for tool:', toolId, 'user:', userId);
+      const { data, error } = await supabase
+        .rpc('toggle_like', {
+          tool_uuid: toolId,
+          user_uuid: userId
+        });
+        
+      if (error) {
+        console.error('DB: Toggle like RPC error:', error);
+        return { 
+          data: null, 
+          error 
+        };
+      }
+      
+      return { 
+        data: data || { like_count: 0, user_liked: false }, 
+        error: null 
+      };
+    } catch (err) {
+      console.error('DB: Toggle like exception:', err);
+      return { 
+        data: null, 
+        error: { message: 'Failed to toggle like in database' }
+      };
+    }
+  },
+
+  addLike: async (userId: string, toolId: string) => {
+    try {
+      console.log('DB: Adding like for tool:', toolId, 'user:', userId);
+      
+      // Check if like already exists
+      const existingLike = await supabase
+        .from('likes')
+        .select('id')
+        .eq('user_id', userId)
+        .eq('tool_id', toolId)
+        .single();
+      
+      if (existingLike.data) {
+        return {
+          data: [existingLike.data],
+          error: null,
+          alreadyExists: true
+        };
+      }
+      
+      const result = await supabase
+        .from('likes')
+        .insert([{ user_id: userId, tool_id: toolId }])
+        .select();
+        
+      return result;
+    } catch (err) {
+      console.error('DB: Like add exception:', err);
+      return { 
+        data: null, 
+        error: { message: 'Failed to add like to database' }
+      };
+    }
+  },
+
+  removeLike: async (userId: string, toolId: string) => {
+    try {
+      console.log('DB: Removing like for tool:', toolId, 'user:', userId);
+      const result = await supabase
+        .from('likes')
+        .delete()
+        .eq('user_id', userId)
+        .eq('tool_id', toolId);
+        
+      return result;
+    } catch (err) {
+      console.error('DB: Like remove exception:', err);
+      return { 
+        data: null, 
+        error: { message: 'Failed to remove like from database' }
+      };
+    }
+  },
+
+  isLiked: async (userId: string, toolId: string) => {
+    try {
+      const { data } = await supabase
+        .from('likes')
+        .select('id')
+        .eq('user_id', userId)
+        .eq('tool_id', toolId)
+        .single();
+      
+      return !!data;
+    } catch (err) {
+      console.error('DB: Like check exception:', err);
+      return false;
+    }
+  },
+
+  clearUserBookmarks: async (userId: string) => {
+    try {
+      const { error } = await supabase
+        .from('bookmarks')
+        .delete()
+        .eq('user_id', userId);
+
+      if (error) {
+        console.error('Error clearing bookmarks:', error);
+        throw error;
+      }
+
+      return { error: null };
+    } catch (error) {
+      console.error('Database error in clearUserBookmarks:', error);
+      throw error;
     }
   }
 };

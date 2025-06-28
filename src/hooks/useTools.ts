@@ -45,7 +45,7 @@ export const useTools = () => {
         rating: tool.rating || 0,
         reviews: tool.reviews_count || 0,
         tags: tool.tags || [],
-        image: tool.image_url,
+        image: 'https://images.pexels.com/photos/8386440/pexels-photo-8386440.jpeg?auto=compress&cs=tinysrgb&w=400',
         url: tool.website_url,
         featured: tool.featured || false,
         verified: tool.verified || false,
@@ -141,7 +141,7 @@ export const useTools = () => {
         rating: data.rating || 0,
         reviews: data.reviews_count || 0,
         tags: data.tags || [],
-        image: data.image_url,
+        image: 'https://images.pexels.com/photos/8386440/pexels-photo-8386440.jpeg?auto=compress&cs=tinysrgb&w=400',
         url: data.website_url,
         featured: data.featured || false,
         verified: data.verified || false,
@@ -162,17 +162,31 @@ export const useTools = () => {
     try {
       console.log('Tools: Creating tool:', toolData);
       
+      // Validate required fields
+      if (!toolData.name || !toolData.description || !toolData.category) {
+        throw new Error('Missing required fields: name, description, or category');
+      }
+      
+      const website_url = toolData.website_url || toolData.url;
+      if (!website_url) {
+        throw new Error('Website URL is required');
+      }
+      
       const toolPayload = {
-        name: toolData.name,
-        description: toolData.description,
+        name: toolData.name.trim(),
+        description: toolData.description.trim(),
         category: toolData.category,
         pricing: toolData.pricing,
         tags: toolData.tags || [],
-        image_url: toolData.image || 'https://images.pexels.com/photos/8386440/pexels-photo-8386440.jpeg?auto=compress&cs=tinysrgb&w=400',
-        website_url: toolData.url,
-        featured: false,
-        verified: false
+        // image_url field removed from database schema
+        website_url: website_url.trim(),
+        rating: toolData.rating || 0,
+        reviews_count: toolData.reviews_count || 0,
+        featured: toolData.featured || false,
+        verified: toolData.verified || false
       };
+      
+  
 
       const { data, error } = await db.createTool(toolPayload);
 

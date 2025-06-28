@@ -223,13 +223,20 @@ CREATE POLICY "Categories are viewable by everyone"
   TO public
   USING (true);
 
--- Tools policies (public read)
+-- Tools policies (public read, authenticated insert)
 DROP POLICY IF EXISTS "Tools are viewable by everyone" ON tools;
 CREATE POLICY "Tools are viewable by everyone"
   ON tools
   FOR SELECT
   TO public
   USING (true);
+
+DROP POLICY IF EXISTS "Authenticated users can insert tools" ON tools;
+CREATE POLICY "Authenticated users can insert tools"
+  ON tools
+  FOR INSERT
+  TO authenticated
+  WITH CHECK (true);
 
 -- Profiles policies
 DROP POLICY IF EXISTS "Users can view all profiles" ON profiles;

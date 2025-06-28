@@ -13,6 +13,7 @@ export interface Tool {
   verified: boolean;
   addedDate: string;
   lastUpdated: string;
+  created_at?: string; // Optional for compatibility
 }
 
 export interface Category {

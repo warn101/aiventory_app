@@ -16,7 +16,14 @@ import {
   ThumbsUp,
   Flag
 } from 'lucide-react';
-import { Tool, User, Review } from '../types';
+import { Tool, User } from '../types';
+import { useAuth } from '../hooks/useAuth';
+import { useBookmarkContext } from '../contexts/BookmarkContext';
+import { ReviewForm } from '../components/ReviewForm';
+import { ReviewList } from '../components/ReviewList';
+import { ReviewSummary } from '../components/ReviewSummary';
+import { LikeButton, LikeCount } from '../components/LikeButton';
+
 
 interface ToolDetailProps {
   tool: Tool;
@@ -25,30 +32,12 @@ interface ToolDetailProps {
 }
 
 const ToolDetail: React.FC<ToolDetailProps> = ({ tool, onBack, currentUser }) => {
-  const [isBookmarked, setIsBookmarked] = useState(false);
+  const { user } = useAuth();
+  const { isBookmarked, toggleBookmark } = useBookmarkContext();
   const [activeTab, setActiveTab] = useState<'overview' | 'reviews' | 'alternatives'>('overview');
-  const [newReview, setNewReview] = useState({ rating: 5, comment: '' });
+  const [bookmarkLoading, setBookmarkLoading] = useState(false);
 
-  const mockReviews: Review[] = [
-    {
-      id: '1',
-      toolId: tool.id,
-      userId: '1',
-      rating: 5,
-      comment: 'Absolutely amazing tool! Has completely transformed my workflow.',
-      date: '2024-01-15',
-      helpful: 12
-    },
-    {
-      id: '2',
-      toolId: tool.id,
-      userId: '2',
-      rating: 4,
-      comment: 'Great features but could use better documentation.',
-      date: '2024-01-10',
-      helpful: 8
-    }
-  ];
+  const toolIsBookmarked = isBookmarked(tool.id);
 
   const getPricingBadge = (pricing: string) => {
     const styles = {
@@ -66,12 +55,7 @@ const ToolDetail: React.FC<ToolDetailProps> = ({ tool, onBack, currentUser }) =>
     return num.toString();
   };
 
-  const handleReviewSubmit = (e: React.FormEvent) => {
-    e.preventDefault();
-    // Handle review submission
-    console.log('Review submitted:', newReview);
-    setNewReview({ rating: 5, comment: '' });
-  };
+
 
   return (
     <div className="min-h-screen bg-gray-50 py-8">
@@ -121,18 +105,31 @@ const ToolDetail: React.FC<ToolDetailProps> = ({ tool, onBack, currentUser }) =>
 
                 {/* Actions */}
                 <div className="absolute top-6 right-6 flex space-x-2">
-                  <motion.button
-                    whileHover={{ scale: 1.05 }}
-                    whileTap={{ scale: 0.95 }}
-                    onClick={() => setIsBookmarked(!isBookmarked)}
-                    className={`p-3 rounded-full backdrop-blur-md border transition-colors ${
-                      isBookmarked 
-                        ? 'bg-primary-600 text-white border-primary-600' 
-                        : 'bg-white/80 text-gray-600 border-white/20 hover:bg-white'
-                    }`}
-                  >
-                    <Bookmark className="h-5 w-5" fill={isBookmarked ? 'currentColor' : 'none'} />
-                  </motion.button>
+                  {user && (
+                    <motion.button
+                      whileHover={{ scale: 1.05 }}
+                      whileTap={{ scale: 0.95 }}
+                      onClick={async () => {
+                        setBookmarkLoading(true);
+                        await toggleBookmark(tool.id);
+                        setBookmarkLoading(false);
+                      }}
+                      disabled={bookmarkLoading}
+                      className={`p-3 rounded-full backdrop-blur-md border transition-colors ${
+                        toolIsBookmarked 
+                          ? 'bg-primary-600 text-white border-primary-600' 
+                          : 'bg-white/80 text-gray-600 border-white/20 hover:bg-white'
+                      } ${bookmarkLoading ? 'opacity-50 cursor-not-allowed' : ''}`}
+                    >
+                      <Bookmark className="h-5 w-5" fill={toolIsBookmarked ? 'currentColor' : 'none'} />
+                    </motion.button>
+                  )}
+                  <LikeButton 
+                    toolId={tool.id}
+                    size="md"
+                    variant="default"
+                    className="backdrop-blur-md"
+                  />
                   <motion.button
                     whileHover={{ scale: 1.05 }}
                     whileTap={{ scale: 0.95 }}
@@ -149,14 +146,15 @@ const ToolDetail: React.FC<ToolDetailProps> = ({ tool, onBack, currentUser }) =>
                   <div>
                     <h1 className="text-4xl font-bold text-gray-900 mb-2">{tool.name}</h1>
                     <div className="flex items-center space-x-4 text-gray-600">
-                      <div className="flex items-center space-x-1">
-                        <Star className="h-5 w-5 text-yellow-400 fill-current" />
-                        <span className="font-semibold text-gray-900">{tool.rating}</span>
-                        <span>({formatNumber(tool.reviews)} reviews)</span>
-                      </div>
-                      <span className={`px-3 py-1 rounded-full text-sm font-medium border ${getPricingBadge(tool.pricing)}`}>
-                        {tool.pricing.charAt(0).toUpperCase() + tool.pricing.slice(1)}
+                      <ReviewSummary 
+                        toolId={tool.id} 
+                        variant="default" 
+                        showReviewCount={true}
+                      />
+                      <span className={`px-3 py-1 rounded-full text-sm font-medium border ${getPricingBadge(tool.pricing || 'free')}`}>
+                        {(tool.pricing || 'free').charAt(0).toUpperCase() + (tool.pricing || 'free').slice(1)}
                       </span>
+                      <LikeCount toolId={tool.id} />
                     </div>
                   </div>
                   
@@ -176,6 +174,8 @@ const ToolDetail: React.FC<ToolDetailProps> = ({ tool, onBack, currentUser }) =>
                 <p className="text-lg text-gray-700 leading-relaxed mb-8">
                   {tool.description}
                 </p>
+
+
 
                 {/* Tags */}
                 <div className="flex flex-wrap gap-2 mb-8">
@@ -251,90 +251,26 @@ const ToolDetail: React.FC<ToolDetailProps> = ({ tool, onBack, currentUser }) =>
 
                   {activeTab === 'reviews' && (
                     <div className="space-y-6">
+                      {/* Review Summary */}
+                      <ReviewSummary 
+                        toolId={tool.id} 
+                        variant="detailed" 
+                        showReviewCount={true}
+                      />
+                      
                       {/* Review Form */}
-                      {currentUser && (
-                        <div className="bg-gray-50 rounded-xl p-6">
-                          <h3 className="text-lg font-semibold text-gray-900 mb-4">Write a Review</h3>
-                          <form onSubmit={handleReviewSubmit} className="space-y-4">
-                            <div>
-                              <label className="block text-sm font-medium text-gray-700 mb-2">Rating</label>
-                              <div className="flex space-x-1">
-                                {[1, 2, 3, 4, 5].map((star) => (
-                                  <button
-                                    key={star}
-                                    type="button"
-                                    onClick={() => setNewReview({ ...newReview, rating: star })}
-                                    className={`p-1 ${star <= newReview.rating ? 'text-yellow-400' : 'text-gray-300'}`}
-                                  >
-                                    <Star className="h-6 w-6 fill-current" />
-                                  </button>
-                                ))}
-                              </div>
-                            </div>
-                            <div>
-                              <label className="block text-sm font-medium text-gray-700 mb-2">Comment</label>
-                              <textarea
-                                value={newReview.comment}
-                                onChange={(e) => setNewReview({ ...newReview, comment: e.target.value })}
-                                className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-primary-500"
-                                rows={4}
-                                placeholder="Share your experience with this tool..."
-                                required
-                              />
-                            </div>
-                            <button
-                              type="submit"
-                              className="bg-primary-600 text-white px-6 py-2 rounded-lg hover:bg-primary-700 transition-colors font-medium"
-                            >
-                              Submit Review
-                            </button>
-                          </form>
-                        </div>
-                      )}
+                      <ReviewForm 
+                        toolId={tool.id}
+                        onSuccess={() => {
+                          // Optionally show success message or refresh reviews
+                        }}
+                      />
 
                       {/* Reviews List */}
-                      <div className="space-y-4">
-                        {mockReviews.map((review) => (
-                          <div key={review.id} className="border border-gray-200 rounded-xl p-6">
-                            <div className="flex items-start justify-between mb-4">
-                              <div className="flex items-center space-x-3">
-                                <div className="w-10 h-10 bg-primary-100 rounded-full flex items-center justify-center">
-                                  <span className="text-primary-600 font-semibold">U</span>
-                                </div>
-                                <div>
-                                  <div className="font-medium text-gray-900">Anonymous User</div>
-                                  <div className="flex items-center space-x-2 text-sm text-gray-500">
-                                    <div className="flex items-center space-x-1">
-                                      {[...Array(5)].map((_, i) => (
-                                        <Star
-                                          key={i}
-                                          className={`h-4 w-4 ${i < review.rating ? 'text-yellow-400 fill-current' : 'text-gray-300'}`}
-                                        />
-                                      ))}
-                                    </div>
-                                    <span>•</span>
-                                    <span>{new Date(review.date).toLocaleDateString()}</span>
-                                  </div>
-                                </div>
-                              </div>
-                              <button className="text-gray-400 hover:text-gray-600">
-                                <Flag className="h-4 w-4" />
-                              </button>
-                            </div>
-                            <p className="text-gray-700 mb-4">{review.comment}</p>
-                            <div className="flex items-center space-x-4 text-sm">
-                              <button className="flex items-center space-x-1 text-gray-500 hover:text-primary-600 transition-colors">
-                                <ThumbsUp className="h-4 w-4" />
-                                <span>Helpful ({review.helpful})</span>
-                              </button>
-                              <button className="flex items-center space-x-1 text-gray-500 hover:text-primary-600 transition-colors">
-                                <MessageCircle className="h-4 w-4" />
-                                <span>Reply</span>
-                              </button>
-                            </div>
-                          </div>
-                        ))}
-                      </div>
+                      <ReviewList 
+                        toolId={tool.id}
+                        showTitle={false}
+                      />
                     </div>
                   )}
 
@@ -387,8 +323,15 @@ const ToolDetail: React.FC<ToolDetailProps> = ({ tool, onBack, currentUser }) =>
                 <div className="flex items-center space-x-3">
                   <Users className="h-5 w-5 text-gray-400" />
                   <div>
-                    <div className="text-sm text-gray-500">Reviews</div>
-                    <div className="font-medium">{formatNumber(tool.reviews)} reviews</div>
+                    <div className="text-sm text-gray-500">Engagement</div>
+                    <div className="space-y-1">
+                      <ReviewSummary 
+                        toolId={tool.id} 
+                        variant="compact" 
+                        showReviewCount={true}
+                      />
+                      <LikeCount toolId={tool.id} />
+                    </div>
                   </div>
                 </div>
               </div>

@@ -23,7 +23,7 @@ const Header: React.FC<HeaderProps> = ({
 
   const navigationItems = [
     { id: 'home', label: 'Discover', icon: Home },
-    { id: 'submit-tool', label: 'Submit Tool', icon: Plus },
+    ...(currentUser ? [{ id: 'submit-tool', label: 'Submit Tool', icon: Plus }] : []),
   ];
 
   return (
@@ -110,6 +110,16 @@ const Header: React.FC<HeaderProps> = ({
                     >
                       <User className="h-4 w-4" />
                       <span>Profile</span>
+                    </button>
+                    <button
+                      onClick={() => {
+                        onNavigate('submit-tool');
+                        setIsProfileMenuOpen(false);
+                      }}
+                      className="flex items-center space-x-2 w-full px-4 py-2 text-left hover:bg-gray-50 transition-colors"
+                    >
+                      <Plus className="h-4 w-4" />
+                      <span>Submit Tool</span>
                     </button>
                     <hr className="my-2" />
                     <button
@@ -202,6 +212,16 @@ const Header: React.FC<HeaderProps> = ({
                     >
                       <User className="h-4 w-4" />
                       <span>Profile</span>
+                    </button>
+                    <button
+                      onClick={() => {
+                        onNavigate('submit-tool');
+                        setIsMenuOpen(false);
+                      }}
+                      className="flex items-center space-x-2 w-full text-left text-gray-700 hover:text-primary-600"
+                    >
+                      <Plus className="h-4 w-4" />
+                      <span>Submit Tool</span>
                     </button>
                     <button
                       onClick={() => {

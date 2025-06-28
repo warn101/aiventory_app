@@ -11,7 +11,6 @@ export interface Database {
           rating: number;
           reviews_count: number;
           tags: string[];
-          image_url: string;
           website_url: string;
           featured: boolean;
           verified: boolean;
@@ -27,7 +26,6 @@ export interface Database {
           rating?: number;
           reviews_count?: number;
           tags: string[];
-          image_url: string;
           website_url: string;
           featured?: boolean;
           verified?: boolean;
@@ -43,7 +41,6 @@ export interface Database {
           rating?: number;
           reviews_count?: number;
           tags?: string[];
-          image_url?: string;
           website_url?: string;
           featured?: boolean;
           verified?: boolean;

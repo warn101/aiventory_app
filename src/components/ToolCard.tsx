@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState } from 'react';
 import { motion } from 'framer-motion';
 import { 
   Star, 
@@ -13,18 +13,38 @@ import {
 } from 'lucide-react';
 import { Tool } from '../types';
 import { useAuth } from '../hooks/useAuth';
-import { useBookmarks } from '../hooks/useBookmarks';
+import { useBookmarkContext } from '../contexts/BookmarkContext';
+import { useLikes } from '../hooks/useLikes';
+import { ReviewSummary } from './ReviewSummary';
+import { LikeButton } from './LikeButton';
 
 interface ToolCardProps {
   tool: Tool;
   onToolClick?: (toolId: string) => void;
+  onBookmarkToggle?: (toolId: string, isBookmarked: boolean) => void;
+  isBookmarked?: boolean;
+  onClick?: () => void;
+  viewMode?: "grid" | "list";
 }
 
-const ToolCard: React.FC<ToolCardProps> = ({ tool, onToolClick }) => {
+const ToolCard: React.FC<ToolCardProps> = ({ 
+  tool, 
+  onToolClick, 
+  onBookmarkToggle, 
+  isBookmarked: propIsBookmarked, 
+  onClick,
+  viewMode
+}) => {
+  // Early return if tool data is invalid to prevent crashes
+  if (!tool || !tool.id || !tool.name) {
+    console.warn('⚠️ ToolCard: Invalid tool data received:', tool);
+    return null;
+  }
+
   const { user } = useAuth();
-  const { isBookmarked, toggleBookmark } = useBookmarks();
-  const [isLiked, setIsLiked] = useState(false);
+  const { isBookmarked, toggleBookmark } = useBookmarkContext();
   const [bookmarkLoading, setBookmarkLoading] = useState(false);
+  const [showAlreadySaved, setShowAlreadySaved] = useState(false);
 
   const getPricingBadge = (pricing: string) => {
     const styles = {
@@ -43,7 +63,9 @@ const ToolCard: React.FC<ToolCardProps> = ({ tool, onToolClick }) => {
   };
 
   const handleCardClick = () => {
-    if (onToolClick) {
+    if (onClick) {
+      onClick();
+    } else if (onToolClick) {
       onToolClick(tool.id);
     }
   };
@@ -53,25 +75,45 @@ const ToolCard: React.FC<ToolCardProps> = ({ tool, onToolClick }) => {
     if (!user) return;
 
     setBookmarkLoading(true);
-    await toggleBookmark(tool.id);
+    
+    if (onBookmarkToggle) {
+      // Use the provided callback
+      const currentlyBookmarked = propIsBookmarked ?? isBookmarked(tool.id);
+      onBookmarkToggle(tool.id, !currentlyBookmarked);
+    } else {
+      // Use the context method
+      const result = await toggleBookmark(tool.id);
+      
+      // Show feedback for already bookmarked tools
+      if (result?.alreadyExists) {
+        setShowAlreadySaved(true);
+        
+        // Reset the feedback after 3 seconds
+        setTimeout(() => {
+          setShowAlreadySaved(false);
+        }, 3000);
+      }
+    }
+    
     setBookmarkLoading(false);
   };
 
-  const toolIsBookmarked = isBookmarked(tool.id);
+  const toolIsBookmarked = propIsBookmarked ?? isBookmarked(tool.id);
+  const isGridView = viewMode === "grid" || !viewMode;
 
   return (
     <motion.div
       whileHover={{ y: -4 }}
-      className="group bg-white rounded-2xl shadow-sm hover:shadow-xl transition-all duration-300 border border-gray-100 overflow-hidden cursor-pointer"
+      className={`group bg-white rounded-2xl shadow-sm hover:shadow-xl transition-all duration-300 border border-gray-100 overflow-hidden cursor-pointer ${isGridView ? '' : 'flex flex-col md:flex-row'}`}
       onClick={handleCardClick}
     >
       {/* Image & Actions */}
-      <div className="relative">
-        <div className="aspect-video bg-gradient-to-br from-gray-100 to-gray-200 overflow-hidden">
+      <div className={`relative ${isGridView ? '' : 'flex-shrink-0 w-full md:w-1/3'}`}>
+        <div className={`${isGridView ? 'aspect-video' : 'h-full'} bg-gradient-to-br from-gray-100 to-gray-200 overflow-hidden`}>
           <img
             src={tool.image}
             alt={tool.name}
-            className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300"
+            className={`w-full h-full object-cover group-hover:scale-105 transition-transform duration-300`}
             onError={(e) => {
               const target = e.target as HTMLImageElement;
               target.src = 'https://images.pexels.com/photos/8386440/pexels-photo-8386440.jpeg?auto=compress&cs=tinysrgb&w=400';
@@ -87,13 +129,19 @@ const ToolCard: React.FC<ToolCardProps> = ({ tool, onToolClick }) => {
               whileTap={{ scale: 0.9 }}
               onClick={handleBookmarkClick}
               disabled={bookmarkLoading}
-              className={`p-2 rounded-full backdrop-blur-md border transition-colors ${
-                toolIsBookmarked 
-                  ? 'bg-primary-600 text-white border-primary-600' 
-                  : 'bg-white/80 text-gray-600 border-white/20 hover:bg-white'
+              className={`${showAlreadySaved ? 'px-3 py-2' : 'p-2'} rounded-full backdrop-blur-md border transition-all duration-300 ${
+                showAlreadySaved
+                  ? 'bg-green-500 text-white border-green-500'
+                  : toolIsBookmarked 
+                    ? 'bg-primary-600 text-white border-primary-600' 
+                    : 'bg-white/80 text-gray-600 border-white/20 hover:bg-white'
               } ${bookmarkLoading ? 'opacity-50 cursor-not-allowed' : ''}`}
             >
-              <Bookmark className="h-4 w-4" fill={toolIsBookmarked ? 'currentColor' : 'none'} />
+              {showAlreadySaved ? (
+                <span className="text-xs font-medium whitespace-nowrap">Already saved!</span>
+              ) : (
+                <Bookmark className="h-4 w-4" fill={toolIsBookmarked ? 'currentColor' : 'none'} />
+              )}
             </motion.button>
           )}
           <motion.button
@@ -124,32 +172,32 @@ const ToolCard: React.FC<ToolCardProps> = ({ tool, onToolClick }) => {
 
         {/* Pricing Badge */}
         <div className="absolute bottom-4 left-4">
-          <span className={`px-3 py-1 rounded-full text-xs font-medium border ${getPricingBadge(tool.pricing)}`}>
-            {tool.pricing.charAt(0).toUpperCase() + tool.pricing.slice(1)}
+          <span className={`px-3 py-1 rounded-full text-xs font-medium border ${getPricingBadge(tool.pricing || 'free')}`}>
+            {(tool.pricing || 'free').charAt(0).toUpperCase() + (tool.pricing || 'free').slice(1)}
           </span>
         </div>
       </div>
 
       {/* Content */}
-      <div className="p-6">
-        <div className="flex items-start justify-between mb-3">
+      <div className={`${isGridView ? 'p-6' : 'p-4 flex-grow'}`}>
+        <div className={`flex ${isGridView ? 'items-start' : 'items-center'} justify-between mb-3`}>
           <h3 className="text-xl font-bold text-gray-900 group-hover:text-primary-600 transition-colors">
             {tool.name}
           </h3>
-          <div className="flex items-center space-x-1 text-sm">
-            <Star className="h-4 w-4 text-yellow-400 fill-current" />
-            <span className="font-medium text-gray-900">{tool.rating}</span>
-            <span className="text-gray-500">({formatNumber(tool.reviews)})</span>
-          </div>
+          <ReviewSummary 
+            toolId={tool.id} 
+            variant="compact" 
+            showReviewCount={true}
+          />
         </div>
 
         <p className="text-gray-600 mb-4 line-clamp-2 leading-relaxed">
-          {tool.description}
+          {tool.description || 'No description available'}
         </p>
 
         {/* Tags */}
         <div className="flex flex-wrap gap-2 mb-4">
-          {tool.tags.slice(0, 3).map((tag, index) => (
+          {(tool.tags || []).slice(0, 3).map((tag, index) => (
             <span
               key={index}
               className="px-2 py-1 bg-gray-100 text-gray-700 text-xs rounded-lg hover:bg-gray-200 transition-colors cursor-pointer"
@@ -157,9 +205,9 @@ const ToolCard: React.FC<ToolCardProps> = ({ tool, onToolClick }) => {
               {tag}
             </span>
           ))}
-          {tool.tags.length > 3 && (
+          {(tool.tags || []).length > 3 && (
             <span className="px-2 py-1 bg-gray-100 text-gray-500 text-xs rounded-lg">
-              +{tool.tags.length - 3}
+              +{(tool.tags || []).length - 3}
             </span>
           )}
         </div>
@@ -169,30 +217,23 @@ const ToolCard: React.FC<ToolCardProps> = ({ tool, onToolClick }) => {
           <div className="flex items-center space-x-4 text-sm text-gray-500">
             <div className="flex items-center space-x-1">
               <Clock className="h-4 w-4" />
-              <span>{new Date(tool.addedDate).toLocaleDateString()}</span>
+              <span>{tool.addedDate ? new Date(tool.addedDate).toLocaleDateString() : 'Unknown date'}</span>
             </div>
           </div>
 
           <div className="flex items-center space-x-2">
-            <motion.button
-              whileHover={{ scale: 1.05 }}
-              whileTap={{ scale: 0.95 }}
-              onClick={(e) => {
-                e.stopPropagation();
-                setIsLiked(!isLiked);
-              }}
-              className={`p-2 rounded-lg transition-colors ${
-                isLiked ? 'text-red-500 bg-red-50' : 'text-gray-400 hover:text-red-500 hover:bg-red-50'
-              }`}
-            >
-              <Heart className="h-4 w-4" fill={isLiked ? 'currentColor' : 'none'} />
-            </motion.button>
+            <LikeButton 
+              toolId={tool.id}
+              size="sm"
+              variant="minimal"
+            />
             
             <motion.button
               whileHover={{ scale: 1.05 }}
               whileTap={{ scale: 0.95 }}
               onClick={(e) => e.stopPropagation()}
               className="p-2 text-gray-400 hover:text-primary-600 hover:bg-primary-50 rounded-lg transition-colors"
+              title="View reviews"
             >
               <MessageCircle className="h-4 w-4" />
             </motion.button>
@@ -212,6 +253,8 @@ const ToolCard: React.FC<ToolCardProps> = ({ tool, onToolClick }) => {
           </div>
         </div>
       </div>
+      
+
     </motion.div>
   );
 };

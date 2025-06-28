@@ -1,42 +1,101 @@
 import React, { useRef, useState } from 'react';
 import { motion } from 'framer-motion';
-import { Upload, X, Image as ImageIcon, Loader2 } from 'lucide-react';
+import { Upload, X, Image as ImageIcon, Loader2, AlertCircle } from 'lucide-react';
 import { useImageUpload } from '../hooks/useImageUpload';
+import { useAuthContext } from '../contexts/AuthContext';
 
 interface ImageUploadProps {
   onImageUpload: (url: string) => void;
   currentImage?: string;
   className?: string;
+  bucket?: 'avatars' | 'tools';
+  folder?: string;
 }
 
-const ImageUpload: React.FC<ImageUploadProps> = ({ 
-  onImageUpload, 
-  currentImage, 
-  className = '' 
+const ImageUpload: React.FC<ImageUploadProps> = ({
+  onImageUpload,
+  currentImage,
+  className = '',
+  bucket = 'tools',
+  folder
 }) => {
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [preview, setPreview] = useState<string | null>(currentImage || null);
   const { uploadImage, uploading, error, clearError } = useImageUpload();
+  const { user, loading: authLoading, isAuthenticated, rehydrateSession } = useAuthContext();
+
+  // Ensure session is valid before upload
+  const ensureValidSession = async () => {
+    if (!isAuthenticated()) {
+      await rehydrateSession();
+    }
+  };
+  const [authError, setAuthError] = useState<string | null>(null);
 
   const handleFileSelect = async (event: React.ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0];
     if (!file) return;
 
+    // Clear any previous auth errors
+    setAuthError(null);
+    clearError();
+
+    // Ensure we have a valid session before upload
+    try {
+      await ensureValidSession();
+    } catch (err) {
+      console.error('Session validation failed:', err);
+      setAuthError('Authentication session expired. Please sign in again.');
+      return;
+    }
+
+    // Check if user is authenticated after session validation
+    if (!user || !isAuthenticated()) {
+      setAuthError('You must be signed in to upload images.');
+      return;
+    }
+
+    // Validate file type
+    if (!file.type.startsWith('image/')) {
+      setAuthError('Please select a valid image file.');
+      return;
+    }
+
+    // Validate file size (5MB for avatars, 10MB for tools)
+    const maxSize = bucket === 'avatars' ? 5 * 1024 * 1024 : 10 * 1024 * 1024;
+    if (file.size > maxSize) {
+      const maxSizeMB = maxSize / (1024 * 1024);
+      setAuthError(`File too large. Maximum size: ${maxSizeMB}MB`);
+      return;
+    }
+
     // Create preview
     const previewUrl = URL.createObjectURL(file);
     setPreview(previewUrl);
 
-    // Upload to Cloudinary
-    const uploadedUrl = await uploadImage(file);
-    if (uploadedUrl) {
-      onImageUpload(uploadedUrl);
-      // Clean up preview URL since we have the real URL now
-      URL.revokeObjectURL(previewUrl);
-      setPreview(uploadedUrl);
-    } else {
-      // Reset preview if upload failed
+    try {
+      // Upload to Supabase Storage with user-specific path
+      const uploadedUrl = await uploadImage(file, bucket, folder);
+      
+      if (uploadedUrl) {
+        onImageUpload(uploadedUrl);
+        // Clean up preview URL since we have the real URL now
+        URL.revokeObjectURL(previewUrl);
+        setPreview(uploadedUrl);
+      } else {
+        // Reset preview if upload failed
+        setPreview(currentImage || null);
+        URL.revokeObjectURL(previewUrl);
+      }
+    } catch (err) {
+      // Reset preview on error
       setPreview(currentImage || null);
       URL.revokeObjectURL(previewUrl);
+      
+      // Set auth error if it's an authentication issue
+      if (err instanceof Error && err.message.includes('authenticated')) {
+        setAuthError('Authentication expired. Please sign in again.');
+      }
     }
   };
 
@@ -49,7 +108,16 @@ const ImageUpload: React.FC<ImageUploadProps> = ({
   };
 
   const handleClick = () => {
+    // Clear any previous errors
     clearError();
+    setAuthError(null);
+    
+    // Check if user is authenticated before allowing file selection
+    if (!user) {
+      setAuthError('You must be signed in to upload images.');
+      return;
+    }
+    
     fileInputRef.current?.click();
   };
 
@@ -96,35 +164,53 @@ const ImageUpload: React.FC<ImageUploadProps> = ({
           </div>
         ) : (
           <motion.button
-            whileHover={{ scale: 1.02 }}
-            whileTap={{ scale: 0.98 }}
+            whileHover={{ scale: !uploading && !authLoading && user ? 1.02 : 1 }}
+            whileTap={{ scale: !uploading && !authLoading && user ? 0.98 : 1 }}
             onClick={handleClick}
-            disabled={uploading}
-            className="w-full h-48 border-2 border-dashed border-gray-300 rounded-lg flex flex-col items-center justify-center hover:border-primary-500 hover:bg-primary-50 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+            disabled={uploading || authLoading || !user}
+            className={`w-full h-48 border-2 border-dashed rounded-lg flex flex-col items-center justify-center transition-colors disabled:opacity-50 disabled:cursor-not-allowed ${
+              !user 
+                ? 'border-red-300 bg-red-50' 
+                : 'border-gray-300 hover:border-primary-500 hover:bg-primary-50'
+            }`}
           >
-            {uploading ? (
+            {authLoading ? (
+              <div className="flex items-center space-x-2 text-gray-600">
+                <Loader2 className="h-8 w-8 animate-spin" />
+                <span className="text-lg font-medium">Checking authentication...</span>
+              </div>
+            ) : uploading ? (
               <div className="flex items-center space-x-2 text-primary-600">
                 <Loader2 className="h-8 w-8 animate-spin" />
                 <span className="text-lg font-medium">Uploading...</span>
               </div>
+            ) : !user ? (
+              <>
+                <AlertCircle className="h-12 w-12 text-red-400 mb-4" />
+                <span className="text-lg font-medium text-red-600">Sign in required</span>
+                <span className="text-sm text-red-500 mt-2">You must be signed in to upload images</span>
+              </>
             ) : (
               <>
                 <ImageIcon className="h-12 w-12 text-gray-400 mb-4" />
                 <span className="text-lg font-medium text-gray-600">Click to upload image</span>
-                <span className="text-sm text-gray-500 mt-2">PNG, JPG up to 5MB</span>
+                <span className="text-sm text-gray-500 mt-2">
+                  PNG, JPG up to {bucket === 'avatars' ? '5MB' : '10MB'}
+                </span>
               </>
             )}
           </motion.button>
         )}
       </div>
 
-      {error && (
+      {(error || authError) && (
         <motion.div
           initial={{ opacity: 0, y: -10 }}
           animate={{ opacity: 1, y: 0 }}
-          className="p-3 bg-red-50 border border-red-200 rounded-lg text-red-700 text-sm"
+          className="p-3 bg-red-50 border border-red-200 rounded-lg flex items-center space-x-2 text-red-700"
         >
-          {error}
+          <AlertCircle className="h-5 w-5 flex-shrink-0" />
+          <span className="text-sm">{authError || error}</span>
         </motion.div>
       )}
 

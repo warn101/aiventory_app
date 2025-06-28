@@ -1,68 +1,90 @@
 import React, { useState, useEffect } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
+
 import Header from './components/Header';
+import Footer from './components/Footer';
+import AuthModal from './components/AuthModal';
+import EmailConfirmation from './components/EmailConfirmation';
 import Hero from './components/Hero';
 import SearchFilters from './components/SearchFilters';
 import ToolGrid from './components/ToolGrid';
 import Categories from './components/Categories';
 import FeaturedTools from './components/FeaturedTools';
 import Stats from './components/Stats';
-import Footer from './components/Footer';
 import ToolDetail from './pages/ToolDetail';
 import Dashboard from './pages/Dashboard';
 import Profile from './pages/Profile';
 import SubmitTool from './pages/SubmitTool';
-import AuthModal from './components/AuthModal';
-import { FilterState } from './types';
-import { useAuth } from './hooks/useAuth';
+import BookmarkPerformanceMonitor from './components/BookmarkPerformanceMonitor';
+
+import { FilterState, Tool, User as AppUser } from './types';
+import { useAuthContext } from './contexts/AuthContext';
 import { useTools } from './hooks/useTools';
 import { useCategories } from './hooks/useCategories';
+import { Database } from './types/database';
+import { db } from './lib/supabase';
 
 type Page = 'home' | 'tool-detail' | 'dashboard' | 'profile' | 'submit-tool';
 
-function App() {
-  const { user, loading: authLoading } = useAuth();
+export default function App() {
+  const { user: authUser, loading: authLoading, signOut } = useAuthContext();
   const { tools, filteredTools, loading: toolsLoading, loadTools, getTool, createTool } = useTools();
-  const { categories, loading: categoriesLoading } = useCategories();
-  
+  const { categories } = useCategories();
+
   const [currentPage, setCurrentPage] = useState<Page>('home');
-  const [selectedToolId, setSelectedToolId] = useState<string | null>(null);
-  const [selectedTool, setSelectedTool] = useState<any>(null);
-  const [selectedCategory, setSelectedCategory] = useState<string>('all');
-  const [searchQuery, setSearchQuery] = useState<string>('');
-  const [filters, setFilters] = useState<FilterState>({
-    category: 'all',
-    pricing: 'all',
-    rating: 0,
-    featured: false
-  });
+  const [selectedTool, setSelectedTool] = useState<Tool | null>(null);
+  const [filters, setFilters] = useState<FilterState>({ category: 'all', pricing: 'all', rating: 0, featured: false });
+  const [searchQuery, setSearchQuery] = useState('');
+  const [selectedCategory, setSelectedCategory] = useState('all');
   const [isAuthModalOpen, setIsAuthModalOpen] = useState(false);
   const [appReady, setAppReady] = useState(false);
+  const [showEmailConfirmation, setShowEmailConfirmation] = useState(false);
+  const [confirmationToken, setConfirmationToken] = useState<string | null>(null);
 
-  // Set app as ready after a short delay to prevent infinite loading
+  // 🗂️ 1️⃣ Properly transform `authUser` → `User`
+  const user: AppUser | null = authUser
+    ? {
+        ...authUser,
+        reviews: authUser.reviews.map(r => ({
+          id: r.id,
+          toolId: r.tool_id,
+          userId: r.user_id,
+          rating: r.rating,
+          comment: r.comment,
+          date: r.created_at.split('T')[0],
+          helpful: r.helpful_count
+        }))
+      }
+    : null;
+
+  // 📨 2️⃣ Handle confirmation tokens
   useEffect(() => {
-    const timer = setTimeout(() => {
-      console.log('App: Setting ready state to true');
-      setAppReady(true);
-    }, 1000); // 1 second max wait
+    const params = new URLSearchParams(window.location.search);
+    const token = params.get('token') || params.get('confirmation_token');
+    if (token && params.get('type') === 'signup') {
+      setConfirmationToken(token);
+      setShowEmailConfirmation(true);
+      window.history.replaceState({}, document.title, window.location.pathname);
+    }
+  }, []);
 
+  // ⏳ 3️⃣ Splash load guard
+  useEffect(() => {
+    const timer = setTimeout(() => setAppReady(true), 1000);
     return () => clearTimeout(timer);
   }, []);
 
-  // Debug logging
-  useEffect(() => {
-    console.log('App State Debug:', {
-      authLoading,
-      toolsLoading,
-      categoriesLoading,
-      appReady,
-      toolsCount: tools.length,
-      filteredToolsCount: filteredTools.length,
-      categoriesCount: categories.length,
-      currentPage,
-      user: user ? 'logged in' : 'not logged in'
-    });
-  }, [authLoading, toolsLoading, categoriesLoading, appReady, tools, filteredTools, categories, currentPage, user]);
+  // 🔀 4️⃣ Navigation handlers
+  const handleNavigation = (page: Page) => {
+    setCurrentPage(page);
+    if (page === 'home') setSelectedTool(null);
+  };
+
+  const handleToolClick = async (id: string) => {
+    const tool = await getTool(id);
+    setSelectedTool(tool);
+    setCurrentPage('tool-detail');
+  };
 
   const handleSearch = (query: string) => {
     setSearchQuery(query);
@@ -74,175 +96,100 @@ function App() {
     loadTools({ ...newFilters, search: searchQuery });
   };
 
-  const handleToolClick = async (toolId: string) => {
-    console.log('Tool clicked:', toolId);
-    setSelectedToolId(toolId);
-    try {
-      const tool = await getTool(toolId);
-      console.log('Tool loaded:', tool);
-      setSelectedTool(tool);
-      setCurrentPage('tool-detail');
-    } catch (error) {
-      console.error('Error loading tool:', error);
+  const handleToolSubmit = async (data: Database['public']['Tables']['tools']['Insert']) => {
+    if (!user) {
+      setIsAuthModalOpen(true);
+      return;
+    }
+    const { error } = await createTool(data);
+    if (!error) {
+      alert('Tool submitted!');
+      handleNavigation('home');
+    } else {
+      alert(`Error: ${(error as { message?: string }).message}`);
     }
   };
 
-  const handleNavigation = (page: Page) => {
-    console.log('Navigating to:', page);
-    setCurrentPage(page);
-    if (page === 'home') {
-      setSelectedToolId(null);
-      setSelectedTool(null);
-    }
-  };
-
-  const handleCategorySelect = (categoryId: string) => {
-    setSelectedCategory(categoryId);
-    const newFilters = { ...filters, category: categoryId };
-    setFilters(newFilters);
-    loadTools({ ...newFilters, search: searchQuery });
-  };
-
-  const handleToolSubmit = async (toolData: any) => {
-    try {
-      const { error } = await createTool(toolData);
-      if (!error) {
-        handleNavigation('home');
-      }
-    } catch (error) {
-      console.error('Error submitting tool:', error);
-    }
-  };
-
-  // Show loading only if auth is still loading AND app is not ready
   if (authLoading && !appReady) {
-    console.log('App: Showing loading screen');
     return (
-      <div className="min-h-screen bg-gradient-to-br from-slate-50 via-blue-50 to-indigo-50 flex items-center justify-center">
-        <div className="text-center">
-          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-primary-600 mx-auto mb-4"></div>
-          <p className="text-gray-600">Loading AIventory...</p>
-        </div>
+      <div className="flex items-center justify-center min-h-screen">
+        Loading...
       </div>
     );
   }
 
-  console.log('App: Rendering main content');
-
+  // 🧭 5️⃣ Correctly typed pages
   const renderCurrentPage = () => {
     switch (currentPage) {
       case 'tool-detail':
-        if (!selectedTool) {
-          return (
-            <div className="min-h-screen flex items-center justify-center">
-              <div className="text-center">
-                <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-primary-600 mx-auto mb-4"></div>
-                <p className="text-gray-600">Loading tool details...</p>
-              </div>
-            </div>
-          );
-        }
-        return (
+        return selectedTool ? (
           <ToolDetail 
             tool={selectedTool} 
             onBack={() => handleNavigation('home')}
-            currentUser={user}
+            currentUser={user} // ✅ typed properly
           />
-        );
-      
+        ) : <p>Loading...</p>;
+
       case 'dashboard':
-        if (!user) {
-          return (
-            <div className="min-h-screen flex items-center justify-center">
-              <div className="text-center">
-                <p className="text-gray-600 mb-4">Please sign in to access your dashboard</p>
-                <button
-                  onClick={() => setIsAuthModalOpen(true)}
-                  className="bg-primary-600 text-white px-6 py-3 rounded-lg hover:bg-primary-700 transition-colors"
-                >
-                  Sign In
-                </button>
-              </div>
-            </div>
-          );
-        }
-        return (
+        return user ? (
           <Dashboard 
-            user={user}
-            tools={tools}
-            onToolClick={handleToolClick}
+            user={user} 
+            tools={tools} 
+            onToolClick={handleToolClick} 
           />
-        );
-      
+        ) : <SignInPrompt />;
+
       case 'profile':
-        if (!user) {
-          return (
-            <div className="min-h-screen flex items-center justify-center">
-              <div className="text-center">
-                <p className="text-gray-600 mb-4">Please sign in to access your profile</p>
-                <button
-                  onClick={() => setIsAuthModalOpen(true)}
-                  className="bg-primary-600 text-white px-6 py-3 rounded-lg hover:bg-primary-700 transition-colors"
-                >
-                  Sign In
-                </button>
-              </div>
-            </div>
-          );
-        }
-        return (
+        return user ? (
           <Profile 
             user={user}
-            onUpdateUser={() => {}} // This will be handled by the useAuth hook
+            onUpdateUser={async (updatedUser) => {
+              await db.updateProfile(user.id, {
+                name: updatedUser.name,
+                email: updatedUser.email,
+                avatar_url: updatedUser.avatar
+              });
+            }}
           />
-        );
-      
+        ) : <SignInPrompt />;
+
       case 'submit-tool':
-        return (
+        return user ? (
           <SubmitTool 
-            onSubmit={handleToolSubmit}
+            onSubmit={handleToolSubmit} 
+            user={user} 
           />
-        );
-      
+        ) : <SignInPrompt />;
+
       default:
         return (
           <>
-            <Hero />
+            <Hero onSearch={handleSearch} onToolClick={handleToolClick} />
             <Stats />
-            <Categories 
+            <Categories
               selectedCategory={selectedCategory}
-              onCategorySelect={handleCategorySelect}
+              onCategorySelect={cat => {
+                setFilters({ ...filters, category: cat });
+                setSelectedCategory(cat);
+              }}
               categories={categories}
             />
-            <FeaturedTools tools={tools.filter(tool => tool.featured)} />
-            
+            <FeaturedTools tools={tools.filter(t => t.featured)} />
             <section className="py-16 px-4">
               <div className="max-w-7xl mx-auto">
-                <motion.div
-                  initial={{ opacity: 0, y: 20 }}
-                  whileInView={{ opacity: 1, y: 0 }}
-                  transition={{ duration: 0.6 }}
-                  className="text-center mb-12"
-                >
-                  <h2 className="text-4xl font-bold text-gray-900 mb-4">
-                    Discover AI Tools
-                  </h2>
-                  <p className="text-xl text-gray-600 max-w-3xl mx-auto">
-                    Explore our comprehensive catalog of AI tools, curated for every use case
-                  </p>
+                <motion.div initial={{ opacity: 0, y: 20 }} whileInView={{ opacity: 1, y: 0 }}>
+                  <h2>Discover AI Tools</h2>
+                  <SearchFilters 
+                    onSearch={handleSearch} 
+                    onFilterChange={handleFilterChange} 
+                    filters={filters} 
+                  />
+                  <ToolGrid 
+                    tools={filteredTools} 
+                    loading={toolsLoading} 
+                    onToolClick={handleToolClick} 
+                  />
                 </motion.div>
-
-                <SearchFilters 
-                  onSearch={handleSearch}
-                  onFilterChange={handleFilterChange}
-                  filters={filters}
-                />
-                
-                <ToolGrid 
-                  tools={filteredTools}
-                  loading={toolsLoading}
-                  onToolClick={handleToolClick}
-                />
               </div>
             </section>
           </>
@@ -250,30 +197,56 @@ function App() {
     }
   };
 
+  const SignInPrompt = () => (
+    <div className="min-h-screen flex flex-col items-center justify-center">
+      <p className="mb-4">Please sign in to continue.</p>
+      <button 
+        onClick={() => setIsAuthModalOpen(true)} 
+        className="btn-primary"
+      >
+        Sign In
+      </button>
+    </div>
+  );
+
   return (
-    <div className="min-h-screen bg-gradient-to-br from-slate-50 via-blue-50 to-indigo-50">
-      <Header 
+    <div>
+      <Header
         currentUser={user}
         onNavigate={handleNavigation}
         onAuthClick={() => setIsAuthModalOpen(true)}
-        onLogout={() => {}} // Handled by useAuth hook
+        onLogout={signOut}
         currentPage={currentPage}
       />
-      
+
       <main>
         <AnimatePresence mode="wait">
           {renderCurrentPage()}
         </AnimatePresence>
       </main>
-      
+
       {currentPage === 'home' && <Footer />}
-      
+
       <AuthModal 
-        isOpen={isAuthModalOpen}
-        onClose={() => setIsAuthModalOpen(false)}
+        isOpen={isAuthModalOpen} 
+        onClose={() => setIsAuthModalOpen(false)} 
       />
+
+      {showEmailConfirmation && (
+        <EmailConfirmation
+          token={confirmationToken || undefined}
+          onComplete={() => {
+            setShowEmailConfirmation(false);
+            setConfirmationToken(null);
+            setIsAuthModalOpen(true);
+          }}
+        />
+      )}
+      
+      {/* Performance Monitor - only show in development */}
+      {process.env.NODE_ENV === 'development' && (
+        <BookmarkPerformanceMonitor showDetails={false} />
+      )}
     </div>
   );
 }
-
-export default App;
