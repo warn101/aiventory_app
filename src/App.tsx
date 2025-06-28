@@ -17,17 +17,17 @@ import Dashboard from './pages/Dashboard';
 import Profile from './pages/Profile';
 import SubmitTool from './pages/SubmitTool';
 
-import { FilterState, Tool } from './types';
-import { useAuthStore } from './store/authStore';
+import { FilterState, Tool, User as AppUser } from './types';
+import { useAuthContext } from './contexts/AuthContext';
 import { useTools } from './hooks/useTools';
 import { useCategories } from './hooks/useCategories';
+import { Database } from './types/database';
 import { db } from './lib/supabase';
-import { BookmarkProvider } from './contexts/BookmarkContext';
 
 type Page = 'home' | 'tool-detail' | 'dashboard' | 'profile' | 'submit-tool';
 
 export default function App() {
-  const { user, signOut } = useAuthStore();
+  const { user: authUser, loading: authLoading, signOut } = useAuthContext();
   const { tools, filteredTools, loading: toolsLoading, loadTools, getTool, createTool } = useTools();
   const { categories } = useCategories();
 
@@ -37,10 +37,27 @@ export default function App() {
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedCategory, setSelectedCategory] = useState('all');
   const [isAuthModalOpen, setIsAuthModalOpen] = useState(false);
+  const [appReady, setAppReady] = useState(false);
   const [showEmailConfirmation, setShowEmailConfirmation] = useState(false);
   const [confirmationToken, setConfirmationToken] = useState<string | null>(null);
 
-  // Check for confirmation tokens in URL
+  // 🗂️ 1️⃣ Properly transform `authUser` → `User`
+  const user: AppUser | null = authUser
+    ? {
+        ...authUser,
+        reviews: authUser.reviews?.map(r => ({
+          id: r.id,
+          toolId: r.tool_id,
+          userId: r.user_id,
+          rating: r.rating,
+          comment: r.comment,
+          date: r.created_at?.split('T')[0] || '',
+          helpful: r.helpful_count
+        })) || []
+      }
+    : null;
+
+  // 📨 2️⃣ Handle confirmation tokens
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
     const token = params.get('token') || params.get('confirmation_token');
@@ -51,7 +68,13 @@ export default function App() {
     }
   }, []);
 
-  // Navigation handlers
+  // ⏳ 3️⃣ Splash load guard
+  useEffect(() => {
+    const timer = setTimeout(() => setAppReady(true), 1000);
+    return () => clearTimeout(timer);
+  }, []);
+
+  // 🔀 4️⃣ Navigation handlers
   const handleNavigation = (page: Page) => {
     setCurrentPage(page);
     if (page === 'home') setSelectedTool(null);
@@ -73,7 +96,7 @@ export default function App() {
     loadTools({ ...newFilters, search: searchQuery });
   };
 
-  const handleToolSubmit = async (data: any) => {
+  const handleToolSubmit = async (data: Database['public']['Tables']['tools']['Insert']) => {
     if (!user) {
       setIsAuthModalOpen(true);
       return;
@@ -87,7 +110,15 @@ export default function App() {
     }
   };
 
-  // Render current page based on state
+  if (authLoading && !appReady) {
+    return (
+      <div className="flex items-center justify-center min-h-screen">
+        Loading...
+      </div>
+    );
+  }
+
+  // 🧭 5️⃣ Correctly typed pages
   const renderCurrentPage = () => {
     switch (currentPage) {
       case 'tool-detail':
@@ -95,7 +126,7 @@ export default function App() {
           <ToolDetail 
             tool={selectedTool} 
             onBack={() => handleNavigation('home')}
-            currentUser={user} 
+            currentUser={user} // ✅ typed properly
           />
         ) : <p>Loading...</p>;
 
@@ -106,7 +137,7 @@ export default function App() {
             tools={tools} 
             onToolClick={handleToolClick} 
           />
-        ) : <SignInPrompt onSignIn={() => setIsAuthModalOpen(true)} />;
+        ) : <SignInPrompt />;
 
       case 'profile':
         return user ? (
@@ -120,7 +151,7 @@ export default function App() {
               });
             }}
           />
-        ) : <SignInPrompt onSignIn={() => setIsAuthModalOpen(true)} />;
+        ) : <SignInPrompt />;
 
       case 'submit-tool':
         return user ? (
@@ -128,7 +159,7 @@ export default function App() {
             onSubmit={handleToolSubmit} 
             user={user} 
           />
-        ) : <SignInPrompt onSignIn={() => setIsAuthModalOpen(true)} />;
+        ) : <SignInPrompt />;
 
       default:
         return (
@@ -166,56 +197,53 @@ export default function App() {
     }
   };
 
+  const SignInPrompt = () => (
+    <div className="min-h-screen flex flex-col items-center justify-center">
+      <p className="mb-4">Please sign in to continue.</p>
+      <button 
+        onClick={() => setIsAuthModalOpen(true)} 
+        className="btn-primary"
+      >
+        Sign In
+      </button>
+    </div>
+  );
+
   return (
-    <BookmarkProvider>
-      <div>
-        <Header
-          currentUser={user}
-          onNavigate={handleNavigation}
-          onAuthClick={() => setIsAuthModalOpen(true)}
-          onLogout={signOut}
-          currentPage={currentPage}
+    <div>
+      <Header
+        currentUser={user}
+        onNavigate={handleNavigation}
+        onAuthClick={() => setIsAuthModalOpen(true)}
+        onLogout={signOut}
+        currentPage={currentPage}
+      />
+
+      <main>
+        <AnimatePresence mode="wait">
+          {renderCurrentPage()}
+        </AnimatePresence>
+      </main>
+
+      {currentPage === 'home' && <Footer />}
+
+      <AuthModal 
+        isOpen={isAuthModalOpen} 
+        onClose={() => setIsAuthModalOpen(false)} 
+      />
+
+      {showEmailConfirmation && (
+        <EmailConfirmation
+          token={confirmationToken || undefined}
+          onComplete={() => {
+            setShowEmailConfirmation(false);
+            setConfirmationToken(null);
+            setIsAuthModalOpen(true);
+          }}
         />
-
-        <main>
-          <AnimatePresence mode="wait">
-            {renderCurrentPage()}
-          </AnimatePresence>
-        </main>
-
-        {currentPage === 'home' && <Footer />}
-
-        <AuthModal 
-          isOpen={isAuthModalOpen} 
-          onClose={() => setIsAuthModalOpen(false)} 
-        />
-
-        {showEmailConfirmation && (
-          <EmailConfirmation
-            token={confirmationToken || undefined}
-            onComplete={() => {
-              setShowEmailConfirmation(false);
-              setConfirmationToken(null);
-              setIsAuthModalOpen(true);
-            }}
-          />
-        )}
-        
-        <Toaster position="top-center" />
-      </div>
-    </BookmarkProvider>
+      )}
+      
+      <Toaster position="top-center" />
+    </div>
   );
 }
-
-// Sign in prompt component
-const SignInPrompt: React.FC<{ onSignIn: () => void }> = ({ onSignIn }) => (
-  <div className="min-h-screen flex flex-col items-center justify-center">
-    <p className="mb-4">Please sign in to continue.</p>
-    <button 
-      onClick={onSignIn} 
-      className="bg-primary-600 text-white px-6 py-2 rounded-lg hover:bg-primary-700 transition-colors"
-    >
-      Sign In
-    </button>
-  </div>
-);
