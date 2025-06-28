@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useCallback } from 'react';
-import { useAuthStore } from '../store/authStore';
+import { useAuth } from './useAuth';
 import { db } from '../lib/supabase';
+import { isValidUUID, isMockData } from '../utils/uuidValidation';
 
 export interface LikeData {
   like_count: number;
@@ -8,7 +9,7 @@ export interface LikeData {
 }
 
 export const useLikes = (toolId: string) => {
-  const { user } = useAuthStore();
+  const { user } = useAuth();
   const [likeData, setLikeData] = useState<LikeData>({ like_count: 0, user_liked: false });
   const [loading, setLoading] = useState(false);
   const [toggling, setToggling] = useState(false);
@@ -23,6 +24,17 @@ export const useLikes = (toolId: string) => {
   // Load like data for the tool
   const loadLikes = useCallback(async () => {
     if (!toolId) return;
+
+    // Skip Supabase query for mock data IDs
+    if (isMockData(toolId)) {
+      console.log('Using mock data for likes, skipping Supabase query for ID:', toolId);
+      // Set default like data for mock tools
+      setLikeData({ 
+        like_count: Math.floor(Math.random() * 100) + 10, // Random number for demo
+        user_liked: false 
+      });
+      return;
+    }
 
     try {
       setLoading(true);
@@ -45,6 +57,17 @@ export const useLikes = (toolId: string) => {
   const toggleLike = async () => {
     if (!user) {
       throw new Error('User must be logged in to like tools');
+    }
+
+    // Skip Supabase operation for mock data
+    if (isMockData(toolId)) {
+      console.log('Using mock data, simulating like toggle for ID:', toolId);
+      // Simulate optimistic update for mock data
+      setLikeData(prev => ({
+        like_count: prev.user_liked ? Math.max(0, prev.like_count - 1) : prev.like_count + 1,
+        user_liked: !prev.user_liked
+      }));
+      return { success: true, data: likeData };
     }
 
     // Store original data for potential revert
@@ -102,6 +125,16 @@ export const useLikes = (toolId: string) => {
       return { success: true, alreadyLiked: true };
     }
 
+    // Skip Supabase operation for mock data
+    if (isMockData(toolId)) {
+      console.log('Using mock data, simulating add like for ID:', toolId);
+      setLikeData(prev => ({
+        like_count: prev.like_count + 1,
+        user_liked: true
+      }));
+      return { success: true };
+    }
+
     try {
       setToggling(true);
       
@@ -140,6 +173,16 @@ export const useLikes = (toolId: string) => {
 
     if (!likeData.user_liked) {
       return { success: true, notLiked: true };
+    }
+
+    // Skip Supabase operation for mock data
+    if (isMockData(toolId)) {
+      console.log('Using mock data, simulating remove like for ID:', toolId);
+      setLikeData(prev => ({
+        like_count: Math.max(0, prev.like_count - 1),
+        user_liked: false
+      }));
+      return { success: true };
     }
 
     try {
@@ -208,7 +251,7 @@ export const useLikes = (toolId: string) => {
 
 // Hook for getting multiple tools' like counts efficiently
 export const useMultipleLikes = (toolIds: string[]) => {
-  const { user } = useAuthStore();
+  const { user } = useAuth();
   const [likesData, setLikesData] = useState<{ [toolId: string]: LikeData }>({});
   const [loading, setLoading] = useState(false);
 
@@ -217,19 +260,36 @@ export const useMultipleLikes = (toolIds: string[]) => {
 
     try {
       setLoading(true);
-      const promises = toolIds.map(toolId => 
-        db.getToolLikes(toolId, user?.id)
-      );
       
-      const results = await Promise.all(promises);
+      // Filter out mock data IDs
+      const validUuidToolIds = toolIds.filter(id => isValidUUID(id));
+      const mockToolIds = toolIds.filter(id => isMockData(id));
       
-      const newLikesData: { [toolId: string]: LikeData } = {};
-      toolIds.forEach((toolId, index) => {
-        const result = results[index];
-        newLikesData[toolId] = result.data || { like_count: 0, user_liked: false };
+      // Process valid UUIDs with Supabase
+      let results: { [toolId: string]: LikeData } = {};
+      
+      if (validUuidToolIds.length > 0) {
+        const promises = validUuidToolIds.map(toolId => 
+          db.getToolLikes(toolId, user?.id)
+        );
+        
+        const apiResults = await Promise.all(promises);
+        
+        validUuidToolIds.forEach((toolId, index) => {
+          const result = apiResults[index];
+          results[toolId] = result.data || { like_count: 0, user_liked: false };
+        });
+      }
+      
+      // Generate mock data for non-UUID IDs
+      mockToolIds.forEach(toolId => {
+        results[toolId] = { 
+          like_count: Math.floor(Math.random() * 100) + 5, 
+          user_liked: false 
+        };
       });
       
-      setLikesData(newLikesData);
+      setLikesData(results);
     } catch (error) {
       console.error('Exception loading multiple likes:', error);
     } finally {

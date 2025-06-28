@@ -1,5 +1,6 @@
 import { createClient, Session } from '@supabase/supabase-js';
 import { Database } from '../types/database';
+import { isValidUUID } from '../utils/uuidValidation';
 
 const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
 const supabaseAnonKey = import.meta.env.VITE_SUPABASE_ANON_KEY;
@@ -340,6 +341,55 @@ export const auth = {
         error: { message: 'Network error during email confirmation. Please try again.' }
       };
     }
+  }
+};
+
+// Optimized bookmark functions with performance improvements
+export const getBookmarks = async (userId: string) => {
+  try {
+    const { data, error } = await supabase
+      .from('bookmarks')
+      .select(`
+        tool_id,
+        created_at,
+        tools (
+          id,
+          name,
+          description,
+          category,
+          pricing,
+          rating,
+          reviews_count,
+          tags,
+          website_url,
+          featured,
+          verified
+        )
+      `)
+      .eq('user_id', userId)
+      .order('created_at', { ascending: false });
+
+    if (error) {
+      console.error('Error fetching bookmarks:', error);
+      throw error;
+    }
+
+    return { data, error: null };
+  } catch (error) {
+    console.error('Database error in getBookmarks:', error);
+    return { data: null, error };
+  }
+};
+
+// Legacy function for backward compatibility
+export const fetchBookmarks = async (userId: string) => {
+  try {
+    const { data, error } = await getBookmarks(userId);
+    if (error) throw error;
+    return data?.map(bookmark => bookmark.tool_id) || [];
+  } catch (error) {
+    console.error('Database error in fetchBookmarks:', error);
+    throw error;
   }
 };
 
@@ -699,6 +749,16 @@ export const db = {
   getReviews: async (toolId: string) => {
     try {
       console.log('DB: Getting reviews for tool:', toolId);
+      
+      // Validate UUID before querying
+      if (!isValidUUID(toolId)) {
+        console.warn('DB: Invalid UUID for reviews query:', toolId);
+        return { 
+          data: [], 
+          error: { message: 'Invalid tool ID format' }
+        };
+      }
+      
       const result = await supabase
         .from('reviews')
         .select(`
@@ -801,6 +861,16 @@ export const db = {
   getLikes: async (toolId: string) => {
     try {
       console.log('DB: Getting likes for tool:', toolId);
+      
+      // Validate UUID before querying
+      if (!isValidUUID(toolId)) {
+        console.warn('DB: Invalid UUID for likes query:', toolId);
+        return { 
+          data: [], 
+          error: { message: 'Invalid tool ID format' }
+        };
+      }
+      
       const result = await supabase
         .from('likes')
         .select('*')
@@ -816,67 +886,35 @@ export const db = {
     }
   },
 
-  // Get tool likes count and user's like status
   getToolLikes: async (toolId: string, userId?: string) => {
     try {
       console.log('DB: Getting tool likes count and user status:', toolId, userId);
       
-      // If we have a stored procedure, use it
-      if (supabase.rpc) {
-        try {
-          const { data, error } = await supabase
-            .rpc('get_tool_likes', {
-              tool_uuid: toolId,
-              user_uuid: userId || null
-            });
-            
-          if (error) {
-            console.error('DB: Tool likes RPC error:', error);
-            // Fall back to manual query if RPC fails
-            throw error;
-          }
-          
-          return { 
-            data: data || { like_count: 0, user_liked: false }, 
-            error: null 
-          };
-        } catch (rpcError) {
-          console.warn('DB: RPC failed, falling back to manual query:', rpcError);
-          // Continue to fallback query below
-        }
+      // Validate UUID before querying
+      if (!isValidUUID(toolId)) {
+        console.warn('DB: Invalid UUID for tool likes query:', toolId);
+        return { 
+          data: { like_count: 0, user_liked: false }, 
+          error: null 
+        };
       }
       
-      // Fallback: Manual query if RPC is not available or fails
-      // Get total likes count
-      const { count: likeCount, error: countError } = await supabase
-        .from('likes')
-        .select('*', { count: 'exact', head: true })
-        .eq('tool_id', toolId);
+      const { data, error } = await supabase
+        .rpc('get_tool_likes', {
+          tool_uuid: toolId,
+          user_uuid: userId || null
+        });
         
-      if (countError) {
-        throw countError;
-      }
-      
-      // Check if user has liked the tool
-      let userLiked = false;
-      if (userId) {
-        const { data: userLike, error: userLikeError } = await supabase
-          .from('likes')
-          .select('id')
-          .eq('tool_id', toolId)
-          .eq('user_id', userId)
-          .single();
-          
-        if (!userLikeError && userLike) {
-          userLiked = true;
-        }
+      if (error) {
+        console.error('DB: Tool likes RPC error:', error);
+        return { 
+          data: { like_count: 0, user_liked: false }, 
+          error 
+        };
       }
       
       return { 
-        data: { 
-          like_count: likeCount || 0, 
-          user_liked: userLiked 
-        }, 
+        data: data || { like_count: 0, user_liked: false }, 
         error: null 
       };
     } catch (err) {
@@ -892,84 +930,33 @@ export const db = {
     try {
       console.log('DB: Toggling like for tool:', toolId, 'user:', userId);
       
-      // If we have a stored procedure, use it
-      if (supabase.rpc) {
-        try {
-          const { data, error } = await supabase
-            .rpc('toggle_like', {
-              tool_uuid: toolId,
-              user_uuid: userId
-            });
-            
-          if (error) {
-            console.error('DB: Toggle like RPC error:', error);
-            // Fall back to manual toggle if RPC fails
-            throw error;
-          }
-          
-          return { 
-            data: data || { like_count: 0, user_liked: false }, 
-            error: null 
-          };
-        } catch (rpcError) {
-          console.warn('DB: RPC failed, falling back to manual toggle:', rpcError);
-          // Continue to fallback implementation below
-        }
+      // Validate UUID before querying
+      if (!isValidUUID(toolId)) {
+        console.warn('DB: Invalid UUID for toggle like:', toolId);
+        return { 
+          data: { like_count: 0, user_liked: false }, 
+          error: null 
+        };
       }
       
-      // Fallback: Manual toggle if RPC is not available or fails
-      // Check if user already liked the tool
-      const { data: existingLike } = await supabase
-        .from('likes')
-        .select('id')
-        .eq('tool_id', toolId)
-        .eq('user_id', userId)
-        .single();
+      const { data, error } = await supabase
+        .rpc('toggle_like', {
+          tool_uuid: toolId,
+          user_uuid: userId
+        });
         
-      if (existingLike) {
-        // Remove like
-        const { error: deleteError } = await supabase
-          .from('likes')
-          .delete()
-          .eq('id', existingLike.id);
-          
-        if (deleteError) throw deleteError;
-        
-        // Get updated count
-        const { count: newCount } = await supabase
-          .from('likes')
-          .select('*', { count: 'exact', head: true })
-          .eq('tool_id', toolId);
-          
+      if (error) {
+        console.error('DB: Toggle like RPC error:', error);
         return { 
-          data: { 
-            like_count: newCount || 0, 
-            user_liked: false 
-          }, 
-          error: null 
-        };
-      } else {
-        // Add like
-        const { error: insertError } = await supabase
-          .from('likes')
-          .insert([{ user_id: userId, tool_id: toolId }]);
-          
-        if (insertError) throw insertError;
-        
-        // Get updated count
-        const { count: newCount } = await supabase
-          .from('likes')
-          .select('*', { count: 'exact', head: true })
-          .eq('tool_id', toolId);
-          
-        return { 
-          data: { 
-            like_count: newCount || 0, 
-            user_liked: true 
-          }, 
-          error: null 
+          data: null, 
+          error 
         };
       }
+      
+      return { 
+        data: data || { like_count: 0, user_liked: false }, 
+        error: null 
+      };
     } catch (err) {
       console.error('DB: Toggle like exception:', err);
       return { 
@@ -982,6 +969,16 @@ export const db = {
   addLike: async (userId: string, toolId: string) => {
     try {
       console.log('DB: Adding like for tool:', toolId, 'user:', userId);
+      
+      // Validate UUID before querying
+      if (!isValidUUID(toolId)) {
+        console.warn('DB: Invalid UUID for add like:', toolId);
+        return {
+          data: null,
+          error: null,
+          alreadyExists: false
+        };
+      }
       
       // Check if like already exists
       const existingLike = await supabase
@@ -1017,6 +1014,16 @@ export const db = {
   removeLike: async (userId: string, toolId: string) => {
     try {
       console.log('DB: Removing like for tool:', toolId, 'user:', userId);
+      
+      // Validate UUID before querying
+      if (!isValidUUID(toolId)) {
+        console.warn('DB: Invalid UUID for remove like:', toolId);
+        return {
+          data: null,
+          error: null
+        };
+      }
+      
       const result = await supabase
         .from('likes')
         .delete()
@@ -1035,6 +1042,12 @@ export const db = {
 
   isLiked: async (userId: string, toolId: string) => {
     try {
+      // Validate UUID before querying
+      if (!isValidUUID(toolId)) {
+        console.warn('DB: Invalid UUID for is liked check:', toolId);
+        return false;
+      }
+      
       const { data } = await supabase
         .from('likes')
         .select('id')
