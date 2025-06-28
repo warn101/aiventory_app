@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useCallback } from 'react';
-import { useAuth } from './useAuth';
+import { useAuthStore } from '../store/authStore';
 import { db } from '../lib/supabase';
 
 export interface LikeData {
@@ -8,7 +8,7 @@ export interface LikeData {
 }
 
 export const useLikes = (toolId: string) => {
-  const { user } = useAuth();
+  const { user } = useAuthStore();
   const [likeData, setLikeData] = useState<LikeData>({ like_count: 0, user_liked: false });
   const [loading, setLoading] = useState(false);
   const [toggling, setToggling] = useState(false);
@@ -208,7 +208,7 @@ export const useLikes = (toolId: string) => {
 
 // Hook for getting multiple tools' like counts efficiently
 export const useMultipleLikes = (toolIds: string[]) => {
-  const { user } = useAuth();
+  const { user } = useAuthStore();
   const [likesData, setLikesData] = useState<{ [toolId: string]: LikeData }>({});
   const [loading, setLoading] = useState(false);
 
