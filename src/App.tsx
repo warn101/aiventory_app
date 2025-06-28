@@ -22,6 +22,7 @@ import { useAuthStore } from './store/authStore';
 import { useTools } from './hooks/useTools';
 import { useCategories } from './hooks/useCategories';
 import { db } from './lib/supabase';
+import { BookmarkProvider } from './contexts/BookmarkContext';
 
 type Page = 'home' | 'tool-detail' | 'dashboard' | 'profile' | 'submit-tool';
 
@@ -166,41 +167,43 @@ export default function App() {
   };
 
   return (
-    <div>
-      <Header
-        currentUser={user}
-        onNavigate={handleNavigation}
-        onAuthClick={() => setIsAuthModalOpen(true)}
-        onLogout={signOut}
-        currentPage={currentPage}
-      />
-
-      <main>
-        <AnimatePresence mode="wait">
-          {renderCurrentPage()}
-        </AnimatePresence>
-      </main>
-
-      {currentPage === 'home' && <Footer />}
-
-      <AuthModal 
-        isOpen={isAuthModalOpen} 
-        onClose={() => setIsAuthModalOpen(false)} 
-      />
-
-      {showEmailConfirmation && (
-        <EmailConfirmation
-          token={confirmationToken || undefined}
-          onComplete={() => {
-            setShowEmailConfirmation(false);
-            setConfirmationToken(null);
-            setIsAuthModalOpen(true);
-          }}
+    <BookmarkProvider>
+      <div>
+        <Header
+          currentUser={user}
+          onNavigate={handleNavigation}
+          onAuthClick={() => setIsAuthModalOpen(true)}
+          onLogout={signOut}
+          currentPage={currentPage}
         />
-      )}
-      
-      <Toaster position="top-center" />
-    </div>
+
+        <main>
+          <AnimatePresence mode="wait">
+            {renderCurrentPage()}
+          </AnimatePresence>
+        </main>
+
+        {currentPage === 'home' && <Footer />}
+
+        <AuthModal 
+          isOpen={isAuthModalOpen} 
+          onClose={() => setIsAuthModalOpen(false)} 
+        />
+
+        {showEmailConfirmation && (
+          <EmailConfirmation
+            token={confirmationToken || undefined}
+            onComplete={() => {
+              setShowEmailConfirmation(false);
+              setConfirmationToken(null);
+              setIsAuthModalOpen(true);
+            }}
+          />
+        )}
+        
+        <Toaster position="top-center" />
+      </div>
+    </BookmarkProvider>
   );
 }
 
