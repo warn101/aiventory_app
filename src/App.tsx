@@ -319,7 +319,7 @@ export default function App() {
             <section className="py-16 px-4">
               <div className="max-w-7xl mx-auto">
                 <motion.div initial={{ opacity: 0, y: 20 }} whileInView={{ opacity: 1, y: 0 }}>
-                  <h2>Discover AI Tools</h2>
+                  <h2 className="text-2xl font-bold text-gray-900 mb-6">Discover AI Tools</h2>
                   <SearchFilters 
                     onSearch={handleSearch} 
                     onFilterChange={handleFilterChange} 
@@ -343,7 +343,7 @@ export default function App() {
       <p className="mb-4">Please sign in to continue.</p>
       <button 
         onClick={() => setIsAuthModalOpen(true)} 
-        className="btn-primary"
+        className="bg-primary-600 text-white px-4 py-2 rounded-lg hover:bg-primary-700 transition-colors"
       >
         Sign In
       </button>
