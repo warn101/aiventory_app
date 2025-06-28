@@ -1,6 +1,5 @@
 import { createClient, Session } from '@supabase/supabase-js';
 import { Database } from '../types/database';
-import { isValidUUID } from '../utils/uuidValidation';
 
 const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
 const supabaseAnonKey = import.meta.env.VITE_SUPABASE_ANON_KEY;
@@ -347,9 +346,32 @@ export const auth = {
 // Optimized bookmark functions with performance improvements
 export const getBookmarks = async (userId: string) => {
   try {
-    const { data, error } = await supabase
+    // Step 1: Verify user authentication
+    const { data: { session }, error: sessionError } = await supabase.auth.getSession();
+    
+    if (sessionError || !session) {
+      console.error('❌ DB: User not authenticated:', sessionError);
+      return { data: [], error: new Error('User not authenticated') };
+    }
+    
+    // Step 2: Verify user exists in profiles (optional, for additional validation)
+    const { data: userProfile } = await supabase
+      .from('profiles')
+      .select('id')
+      .eq('id', userId)
+      .single();
+    
+    if (!userProfile) {
+      console.error('❌ DB: User profile not found:', userId);
+      return { data: [], error: new Error('User profile not found') };
+    }
+    
+    // Step 3: Get bookmarks with explicit LEFT JOIN and proper ordering
+    const result = await supabase
       .from('bookmarks')
       .select(`
+        id,
+        user_id,
         tool_id,
         created_at,
         tools (
@@ -363,21 +385,28 @@ export const getBookmarks = async (userId: string) => {
           tags,
           website_url,
           featured,
-          verified
+          verified,
+          created_at,
+          updated_at
         )
       `)
       .eq('user_id', userId)
       .order('created_at', { ascending: false });
-
-    if (error) {
-      console.error('Error fetching bookmarks:', error);
-      throw error;
+    
+    if (result.error) {
+      console.error('❌ DB: Supabase query error:', result.error);
+      throw result.error;
     }
-
-    return { data, error: null };
-  } catch (error) {
-    console.error('Database error in getBookmarks:', error);
-    return { data: null, error };
+    
+    console.log('✅ DB: Bookmarks fetched successfully:', result.data?.length || 0);
+    return result;
+    
+  } catch (err) {
+    console.error('💥 DB: Bookmarks query exception:', err);
+    return { 
+      data: [], 
+      error: err instanceof Error ? err : new Error('Failed to fetch bookmarks from database')
+    };
   }
 };
 
@@ -434,6 +463,8 @@ export const db = {
 
       const result = await query;
       
+
+      
       return result;
     } catch (err) {
       console.error('DB: Tools query exception:', err);
@@ -453,6 +484,8 @@ export const db = {
         .eq('id', id)
         .single();
         
+
+      
       return result;
     } catch (err) {
       console.error('DB: Tool query exception:', err);
@@ -474,6 +507,8 @@ export const db = {
         .select()
         .single();
         
+
+      
       if (result.error) {
         console.error('DB: Detailed error:', result.error);
       }
@@ -498,6 +533,8 @@ export const db = {
         .select()
         .single();
         
+
+      
       return result;
     } catch (err) {
       console.error('DB: Tool update exception:', err);
@@ -517,6 +554,8 @@ export const db = {
         .select('*')
         .order('name');
         
+
+      
       return result;
     } catch (err) {
       console.error('DB: Categories query exception:', err);
@@ -537,6 +576,8 @@ export const db = {
         .eq('id', userId)
         .single();
         
+
+      
       return result;
     } catch (err) {
       console.error('DB: Profile query exception:', err);
@@ -556,6 +597,8 @@ export const db = {
         .select()
         .single();
         
+
+      
       return result;
     } catch (err) {
       console.error('DB: Profile creation exception:', err);
@@ -576,6 +619,8 @@ export const db = {
         .select()
         .single();
         
+
+      
       return result;
     } catch (err) {
       console.error('DB: Profile update exception:', err);
@@ -592,9 +637,10 @@ export const db = {
       console.log('🔍 DB: Fetching bookmarks for user:', userId);
       
       // Step 1: Verify user authentication
-      const { data: { user }, error: authError } = await supabase.auth.getUser();
-      if (authError || !user) {
-        console.error('❌ DB: User not authenticated:', authError);
+      const { data: { session }, error: sessionError } = await supabase.auth.getSession();
+      
+      if (sessionError || !session) {
+        console.error('❌ DB: User not authenticated:', sessionError);
         return { data: [], error: new Error('User not authenticated') };
       }
       
@@ -657,7 +703,12 @@ export const db = {
   addBookmark: async (userId: string, toolId: string) => {
     try {
       // Check auth state
-      const { data: { user } } = await supabase.auth.getUser();
+      const { data: { session }, error: sessionError } = await supabase.auth.getSession();
+      
+      if (sessionError || !session) {
+        console.error('❌ DB: User not authenticated:', sessionError);
+        return { data: [], error: new Error('User not authenticated') };
+      }
       
       // First check if bookmark already exists
       const existingBookmark = await supabase
@@ -668,6 +719,7 @@ export const db = {
         .single();
       
       if (existingBookmark.data) {
+        console.log('✅ DB: Bookmark already exists');
         return {
           data: [existingBookmark.data],
           error: null,
@@ -675,6 +727,7 @@ export const db = {
         };
       }
       
+
       // Use upsert to handle race conditions
       const result = await supabase
         .from('bookmarks')
@@ -684,6 +737,8 @@ export const db = {
         })
         .select();
         
+
+      
       // Check for silent failures
       if (!result.error && (!result.data || result.data.length === 0)) {
         console.warn('⚠️ DB: Silent failure detected - no rows inserted despite no error');
@@ -706,6 +761,14 @@ export const db = {
   removeBookmark: async (userId: string, toolId: string) => {
     try {
       console.log('🗑️ DB: Removing bookmark for user:', userId, 'tool:', toolId);
+
+      // Check auth state
+      const { data: { session }, error: sessionError } = await supabase.auth.getSession();
+      
+      if (sessionError || !session) {
+        console.error('❌ DB: User not authenticated:', sessionError);
+        return { data: [], error: new Error('User not authenticated') };
+      }
 
       const result = await supabase
         .from('bookmarks')
@@ -749,16 +812,6 @@ export const db = {
   getReviews: async (toolId: string) => {
     try {
       console.log('DB: Getting reviews for tool:', toolId);
-      
-      // Validate UUID before querying
-      if (!isValidUUID(toolId)) {
-        console.warn('DB: Invalid UUID for reviews query:', toolId);
-        return { 
-          data: [], 
-          error: { message: 'Invalid tool ID format' }
-        };
-      }
-      
       const result = await supabase
         .from('reviews')
         .select(`
@@ -768,6 +821,8 @@ export const db = {
         .eq('tool_id', toolId)
         .order('created_at', { ascending: false });
         
+
+      
       return result;
     } catch (err) {
       console.error('DB: Reviews query exception:', err);
@@ -787,6 +842,8 @@ export const db = {
         .select()
         .single();
         
+
+      
       return result;
     } catch (err) {
       console.error('DB: Review creation exception:', err);
@@ -800,6 +857,15 @@ export const db = {
   getUserReviews: async (userId: string) => {
     try {
       console.log('DB: Getting reviews for user:', userId);
+      
+      // Check auth state
+      const { data: { session }, error: sessionError } = await supabase.auth.getSession();
+      
+      if (sessionError || !session) {
+        console.error('❌ DB: User not authenticated:', sessionError);
+        return { data: [], error: new Error('User not authenticated') };
+      }
+      
       const result = await supabase
         .from('reviews')
         .select(`
@@ -809,6 +875,8 @@ export const db = {
         .eq('user_id', userId)
         .order('created_at', { ascending: false });
         
+
+      
       return result;
     } catch (err) {
       console.error('DB: User reviews query exception:', err);
@@ -861,16 +929,6 @@ export const db = {
   getLikes: async (toolId: string) => {
     try {
       console.log('DB: Getting likes for tool:', toolId);
-      
-      // Validate UUID before querying
-      if (!isValidUUID(toolId)) {
-        console.warn('DB: Invalid UUID for likes query:', toolId);
-        return { 
-          data: [], 
-          error: { message: 'Invalid tool ID format' }
-        };
-      }
-      
       const result = await supabase
         .from('likes')
         .select('*')
@@ -890,13 +948,18 @@ export const db = {
     try {
       console.log('DB: Getting tool likes count and user status:', toolId, userId);
       
-      // Validate UUID before querying
-      if (!isValidUUID(toolId)) {
-        console.warn('DB: Invalid UUID for tool likes query:', toolId);
-        return { 
-          data: { like_count: 0, user_liked: false }, 
-          error: null 
-        };
+      // Check auth state for user-specific queries
+      if (userId) {
+        const { data: { session }, error: sessionError } = await supabase.auth.getSession();
+        
+        if (sessionError || !session) {
+          console.error('❌ DB: User not authenticated for likes query:', sessionError);
+          // Return default data instead of error for better UX
+          return { 
+            data: { like_count: 0, user_liked: false }, 
+            error: null
+          };
+        }
       }
       
       const { data, error } = await supabase
@@ -930,12 +993,14 @@ export const db = {
     try {
       console.log('DB: Toggling like for tool:', toolId, 'user:', userId);
       
-      // Validate UUID before querying
-      if (!isValidUUID(toolId)) {
-        console.warn('DB: Invalid UUID for toggle like:', toolId);
+      // Check auth state
+      const { data: { session }, error: sessionError } = await supabase.auth.getSession();
+      
+      if (sessionError || !session) {
+        console.error('❌ DB: User not authenticated for toggle like:', sessionError);
         return { 
-          data: { like_count: 0, user_liked: false }, 
-          error: null 
+          data: null, 
+          error: new Error('User not authenticated') 
         };
       }
       
@@ -970,13 +1035,14 @@ export const db = {
     try {
       console.log('DB: Adding like for tool:', toolId, 'user:', userId);
       
-      // Validate UUID before querying
-      if (!isValidUUID(toolId)) {
-        console.warn('DB: Invalid UUID for add like:', toolId);
-        return {
-          data: null,
-          error: null,
-          alreadyExists: false
+      // Check auth state
+      const { data: { session }, error: sessionError } = await supabase.auth.getSession();
+      
+      if (sessionError || !session) {
+        console.error('❌ DB: User not authenticated for add like:', sessionError);
+        return { 
+          data: null, 
+          error: new Error('User not authenticated') 
         };
       }
       
@@ -1015,12 +1081,14 @@ export const db = {
     try {
       console.log('DB: Removing like for tool:', toolId, 'user:', userId);
       
-      // Validate UUID before querying
-      if (!isValidUUID(toolId)) {
-        console.warn('DB: Invalid UUID for remove like:', toolId);
-        return {
-          data: null,
-          error: null
+      // Check auth state
+      const { data: { session }, error: sessionError } = await supabase.auth.getSession();
+      
+      if (sessionError || !session) {
+        console.error('❌ DB: User not authenticated for remove like:', sessionError);
+        return { 
+          data: null, 
+          error: new Error('User not authenticated') 
         };
       }
       
@@ -1042,12 +1110,6 @@ export const db = {
 
   isLiked: async (userId: string, toolId: string) => {
     try {
-      // Validate UUID before querying
-      if (!isValidUUID(toolId)) {
-        console.warn('DB: Invalid UUID for is liked check:', toolId);
-        return false;
-      }
-      
       const { data } = await supabase
         .from('likes')
         .select('id')
@@ -1064,6 +1126,14 @@ export const db = {
 
   clearUserBookmarks: async (userId: string) => {
     try {
+      // Check auth state
+      const { data: { session }, error: sessionError } = await supabase.auth.getSession();
+      
+      if (sessionError || !session) {
+        console.error('❌ DB: User not authenticated for clear bookmarks:', sessionError);
+        return { error: new Error('User not authenticated') };
+      }
+      
       const { error } = await supabase
         .from('bookmarks')
         .delete()

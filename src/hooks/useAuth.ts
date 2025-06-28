@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import { User, Session } from '@supabase/supabase-js';
-import { db, supabase } from '../lib/supabase';
+import { auth, db, supabase } from '../lib/supabase';
 import { Database } from '../types/database';
 
 interface AuthUser {
@@ -110,9 +110,15 @@ export const useAuth = () => {
             console.log('Auth: User signed out or no session');
             setUser(null);
             setSession(null);
+            // Clear any remaining auth data on sign out
+            if (event === 'SIGNED_OUT') {
+              await auth.clearAllAuthStorage();
+            }
           }
         } catch (error) {
           console.error('Auth: Error handling auth state change:', error);
+          // Clear problematic session data on error
+          await auth.clearStaleSession();
           setUser(null);
         } finally {
           // Always reset loading state
@@ -306,7 +312,7 @@ export const useAuth = () => {
   // Function to rehydrate session (refresh current user data)
   const rehydrateSession = async () => {
     try {
-      const { data: { user: authUser }, error } = await supabase.auth.getUser();
+      const { user: authUser, error } = await auth.getCurrentUser();
       if (error) {
         console.warn('Auth: Error rehydrating session:', error);
         setUser(null);
@@ -329,21 +335,15 @@ export const useAuth = () => {
       console.log('Auth: Signing up user:', email);
       setLoading(true);
       
-      const { data, error } = await supabase.auth.signUp({
-        email,
-        password,
-        options: {
-          data: { name }
-        }
-      });
+      const result = await auth.signUp(email, password, { name });
       
-      if (error) {
-        console.error('Auth: Signup error:', error);
-        return { data: null, error };
+      if (result.error) {
+        console.error('Auth: Signup error:', result.error);
+        return { data: null, error: result.error };
       }
 
       console.log('Auth: Signup successful');
-      return { data, error: null };
+      return { data: result.data, error: null };
     } catch (error) {
       console.error('Auth: Signup exception:', error);
       return { 
@@ -360,27 +360,24 @@ export const useAuth = () => {
       console.log('🎯 useAuth: Starting sign-in for:', email);
       setLoading(true);
       
-      console.log('⏱️ useAuth: Starting supabase.auth.signInWithPassword...');
+      console.log('⏱️ useAuth: Starting auth.signIn...');
       
       // Trust Supabase completely - no manual timeouts
-      const { data, error } = await supabase.auth.signInWithPassword({
-        email,
-        password
-      });
+      const result = await auth.signIn(email, password);
       
       console.log('📋 useAuth: Auth result received:', {
-        hasData: !!data,
-        hasError: !!error,
-        errorMessage: error?.message
+        hasData: !!result.data,
+        hasError: !!result.error,
+        errorMessage: result.error?.message
       });
       
-      if (error) {
-        console.error('❌ useAuth: Signin error:', error);
-        return { data: null, error };
+      if (result.error) {
+        console.error('❌ useAuth: Signin error:', result.error);
+        return { data: null, error: result.error };
       }
 
       console.log('🎉 useAuth: Signin successful, auth state should update automatically');
-      return { data, error: null };
+      return { data: result.data, error: null };
     } catch (error) {
       console.error('💥 useAuth: Signin exception:', error);
       return { 
@@ -398,8 +395,8 @@ export const useAuth = () => {
       console.log('🎯 useAuth: Starting sign-out process...');
       
       // Use the enhanced signOut method with storage clearing
-      console.log('📞 useAuth: Calling supabase.auth.signOut...');
-      const { error } = await supabase.auth.signOut();
+      console.log('📞 useAuth: Calling auth.signOut...');
+      const { error } = await auth.signOut();
       
       // Always clear local user state, even if signOut had errors
       console.log('🧹 useAuth: Clearing local user state...');
@@ -461,24 +458,24 @@ export const useAuth = () => {
     try {
       console.log('Auth: Confirming email with token');
       
-      const { data, error } = await supabase.auth.verifyOtp({
+      const result = await auth.verifyOtp({
         token_hash: token,
         type: 'signup'
       });
 
-      if (error) {
-        console.error('Auth: Email confirmation error:', error);
-        return { data: null, error };
+      if (result.error) {
+        console.error('Auth: Email confirmation error:', result.error);
+        return { data: null, error: result.error };
       }
 
       console.log('Auth: Email confirmed successfully');
       
       // Load user profile after confirmation
-      if (data && data.user) {
-        await loadUserProfile(data.user);
+      if (result.data && result.data.user) {
+        await loadUserProfile(result.data.user);
       }
       
-      return { data, error: null };
+      return { data: result.data, error: null };
     } catch (error) {
       console.error('Auth: Email confirmation exception:', error);
       return { 

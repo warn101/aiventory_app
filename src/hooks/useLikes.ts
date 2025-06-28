@@ -1,7 +1,6 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { useAuth } from './useAuth';
 import { db } from '../lib/supabase';
-import { isValidUUID, isMockData } from '../utils/uuidValidation';
 
 export interface LikeData {
   like_count: number;
@@ -25,19 +24,16 @@ export const useLikes = (toolId: string) => {
   const loadLikes = useCallback(async () => {
     if (!toolId) return;
 
-    // Skip Supabase query for mock data IDs
-    if (isMockData(toolId)) {
-      console.log('Using mock data for likes, skipping Supabase query for ID:', toolId);
-      // Set default like data for mock tools
-      setLikeData({ 
-        like_count: Math.floor(Math.random() * 100) + 10, // Random number for demo
-        user_liked: false 
-      });
-      return;
-    }
-
     try {
       setLoading(true);
+      
+      // Check if we have an active session before making the request
+      const { data: { session } } = await db.supabase.auth.getSession();
+      if (!session && user?.id) {
+        console.warn('useLikes: No active session found, but user exists. Using cached data.');
+        return;
+      }
+      
       const { data, error } = await db.getToolLikes(toolId, user?.id);
       
       if (error) {
@@ -59,22 +55,17 @@ export const useLikes = (toolId: string) => {
       throw new Error('User must be logged in to like tools');
     }
 
-    // Skip Supabase operation for mock data
-    if (isMockData(toolId)) {
-      console.log('Using mock data, simulating like toggle for ID:', toolId);
-      // Simulate optimistic update for mock data
-      setLikeData(prev => ({
-        like_count: prev.user_liked ? Math.max(0, prev.like_count - 1) : prev.like_count + 1,
-        user_liked: !prev.user_liked
-      }));
-      return { success: true, data: likeData };
-    }
-
     // Store original data for potential revert
     const originalData = { ...likeData };
 
     try {
       setToggling(true);
+      
+      // Check if we have an active session before making the request
+      const { data: { session } } = await db.supabase.auth.getSession();
+      if (!session) {
+        throw new Error('No active session. Please sign in again.');
+      }
       
       // Optimistic update
       const optimisticData = {
@@ -125,18 +116,14 @@ export const useLikes = (toolId: string) => {
       return { success: true, alreadyLiked: true };
     }
 
-    // Skip Supabase operation for mock data
-    if (isMockData(toolId)) {
-      console.log('Using mock data, simulating add like for ID:', toolId);
-      setLikeData(prev => ({
-        like_count: prev.like_count + 1,
-        user_liked: true
-      }));
-      return { success: true };
-    }
-
     try {
       setToggling(true);
+      
+      // Check if we have an active session before making the request
+      const { data: { session } } = await db.supabase.auth.getSession();
+      if (!session) {
+        throw new Error('No active session. Please sign in again.');
+      }
       
       // Optimistic update
       const optimisticData = {
@@ -175,18 +162,14 @@ export const useLikes = (toolId: string) => {
       return { success: true, notLiked: true };
     }
 
-    // Skip Supabase operation for mock data
-    if (isMockData(toolId)) {
-      console.log('Using mock data, simulating remove like for ID:', toolId);
-      setLikeData(prev => ({
-        like_count: Math.max(0, prev.like_count - 1),
-        user_liked: false
-      }));
-      return { success: true };
-    }
-
     try {
       setToggling(true);
+      
+      // Check if we have an active session before making the request
+      const { data: { session } } = await db.supabase.auth.getSession();
+      if (!session) {
+        throw new Error('No active session. Please sign in again.');
+      }
       
       // Optimistic update
       const optimisticData = {
@@ -223,8 +206,11 @@ export const useLikes = (toolId: string) => {
   const canLike = !!user;
 
   useEffect(() => {
-    loadLikes();
-  }, [loadLikes]);
+    // Only load likes if we have a valid toolId
+    if (toolId) {
+      loadLikes();
+    }
+  }, [loadLikes, toolId]);
 
   // Listen for auth changes to reload likes
   useEffect(() => {
@@ -261,35 +247,26 @@ export const useMultipleLikes = (toolIds: string[]) => {
     try {
       setLoading(true);
       
-      // Filter out mock data IDs
-      const validUuidToolIds = toolIds.filter(id => isValidUUID(id));
-      const mockToolIds = toolIds.filter(id => isMockData(id));
-      
-      // Process valid UUIDs with Supabase
-      let results: { [toolId: string]: LikeData } = {};
-      
-      if (validUuidToolIds.length > 0) {
-        const promises = validUuidToolIds.map(toolId => 
-          db.getToolLikes(toolId, user?.id)
-        );
-        
-        const apiResults = await Promise.all(promises);
-        
-        validUuidToolIds.forEach((toolId, index) => {
-          const result = apiResults[index];
-          results[toolId] = result.data || { like_count: 0, user_liked: false };
-        });
+      // Check if we have an active session before making the request
+      const { data: { session } } = await db.supabase.auth.getSession();
+      if (!session && user?.id) {
+        console.warn('useMultipleLikes: No active session found, but user exists. Using cached data.');
+        return;
       }
       
-      // Generate mock data for non-UUID IDs
-      mockToolIds.forEach(toolId => {
-        results[toolId] = { 
-          like_count: Math.floor(Math.random() * 100) + 5, 
-          user_liked: false 
-        };
+      const promises = toolIds.map(toolId => 
+        db.getToolLikes(toolId, user?.id)
+      );
+      
+      const results = await Promise.all(promises);
+      
+      const newLikesData: { [toolId: string]: LikeData } = {};
+      toolIds.forEach((toolId, index) => {
+        const result = results[index];
+        newLikesData[toolId] = result.data || { like_count: 0, user_liked: false };
       });
       
-      setLikesData(results);
+      setLikesData(newLikesData);
     } catch (error) {
       console.error('Exception loading multiple likes:', error);
     } finally {

@@ -1,7 +1,6 @@
 import { useState, useEffect, useCallback } from 'react';
 import { db } from '../lib/supabase';
 import { useAuth } from './useAuth';
-import { isValidUUID, isMockData } from '../utils/uuidValidation';
 
 export interface Review {
   id: string;
@@ -36,55 +35,16 @@ export const useReviews = (toolId: string) => {
   const loadReviews = useCallback(async () => {
     if (!toolId) return;
 
-    // Skip Supabase query for mock data IDs
-    if (isMockData(toolId)) {
-      console.log('Using mock data for reviews, skipping Supabase query for ID:', toolId);
-      // Set mock reviews data
-      const mockReviews: Review[] = [
-        {
-          id: `mock-review-1-${toolId}`,
-          user_id: 'mock-user-1',
-          tool_id: toolId,
-          rating: 4,
-          comment: 'This is a great tool! Very useful for my workflow.',
-          helpful_count: 12,
-          created_at: new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString(),
-          updated_at: new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString(),
-          profiles: {
-            name: 'John Doe',
-            avatar_url: 'https://images.pexels.com/photos/220453/pexels-photo-220453.jpeg?auto=compress&cs=tinysrgb&w=100'
-          }
-        },
-        {
-          id: `mock-review-2-${toolId}`,
-          user_id: 'mock-user-2',
-          tool_id: toolId,
-          rating: 5,
-          comment: 'Absolutely love this! Changed the way I work with AI.',
-          helpful_count: 8,
-          created_at: new Date(Date.now() - 14 * 24 * 60 * 60 * 1000).toISOString(),
-          updated_at: new Date(Date.now() - 14 * 24 * 60 * 60 * 1000).toISOString(),
-          profiles: {
-            name: 'Jane Smith',
-            avatar_url: 'https://images.pexels.com/photos/1239291/pexels-photo-1239291.jpeg?auto=compress&cs=tinysrgb&w=100'
-          }
-        }
-      ];
-      
-      setReviews(mockReviews);
-      
-      // Set user review if current user matches a mock review
-      if (user) {
-        const userMockReview = mockReviews.find(review => review.user_id === user.id);
-        setUserReview(userMockReview || null);
-      }
-      
-      setLoading(false);
-      return;
-    }
-
     try {
       setLoading(true);
+      
+      // Check if we have an active session before making the request
+      const { data: { session } } = await db.supabase.auth.getSession();
+      if (!session && user?.id) {
+        console.warn('useReviews: No active session found, but user exists. Using cached data.');
+        return;
+      }
+      
       const { data, error } = await db.getReviews(toolId);
       
       if (error) {
@@ -113,35 +73,14 @@ export const useReviews = (toolId: string) => {
       throw new Error('User must be logged in to submit a review');
     }
 
-    // Mock data handling
-    if (isMockData(toolId)) {
-      console.log('Using mock data, simulating review submission for ID:', toolId);
-      
-      // Create a mock review
-      const mockReview: Review = {
-        id: `mock-review-${Date.now()}`,
-        user_id: user.id,
-        tool_id: toolId,
-        rating,
-        comment,
-        helpful_count: 0,
-        created_at: new Date().toISOString(),
-        updated_at: new Date().toISOString(),
-        profiles: {
-          name: user.name,
-          avatar_url: user.avatar
-        }
-      };
-      
-      // Update local state
-      setUserReview(mockReview);
-      setReviews(prev => [mockReview, ...prev.filter(r => r.user_id !== user.id)]);
-      
-      return { success: true, data: mockReview };
-    }
-
     try {
       setSubmitting(true);
+      
+      // Check if we have an active session before making the request
+      const { data: { session } } = await db.supabase.auth.getSession();
+      if (!session) {
+        throw new Error('No active session. Please sign in again.');
+      }
       
       const reviewData = {
         user_id: user.id,
@@ -174,29 +113,14 @@ export const useReviews = (toolId: string) => {
       throw new Error('No existing review to update');
     }
 
-    // Mock data handling
-    if (isMockData(toolId)) {
-      console.log('Using mock data, simulating review update for ID:', toolId);
-      
-      // Update the mock review
-      const updatedReview: Review = {
-        ...userReview,
-        rating,
-        comment,
-        updated_at: new Date().toISOString()
-      };
-      
-      // Update local state
-      setUserReview(updatedReview);
-      setReviews(prev => prev.map(r => 
-        r.id === userReview.id ? updatedReview : r
-      ));
-      
-      return { success: true, data: updatedReview };
-    }
-
     try {
       setSubmitting(true);
+      
+      // Check if we have an active session before making the request
+      const { data: { session } } = await db.supabase.auth.getSession();
+      if (!session) {
+        throw new Error('No active session. Please sign in again.');
+      }
       
       const { data, error } = await db.updateReview(userReview.id, {
         rating,
@@ -226,19 +150,14 @@ export const useReviews = (toolId: string) => {
       throw new Error('No review to delete');
     }
 
-    // Mock data handling
-    if (isMockData(toolId)) {
-      console.log('Using mock data, simulating review deletion for ID:', toolId);
-      
-      // Update local state
-      setUserReview(null);
-      setReviews(prev => prev.filter(r => r.id !== userReview.id));
-      
-      return { success: true };
-    }
-
     try {
       setSubmitting(true);
+      
+      // Check if we have an active session before making the request
+      const { data: { session } } = await db.supabase.auth.getSession();
+      if (!session) {
+        throw new Error('No active session. Please sign in again.');
+      }
       
       const { error } = await db.deleteReview(userReview.id);
       
