@@ -1,5 +1,6 @@
 import { createClient, Session } from '@supabase/supabase-js';
 import { Database } from '../types/database';
+import { isValidUUID } from '../utils/uuidValidation';
 
 const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
 const supabaseAnonKey = import.meta.env.VITE_SUPABASE_ANON_KEY;
@@ -11,27 +12,22 @@ console.log('Supabase Config:', {
 });
 
 if (!supabaseUrl || !supabaseAnonKey) {
-  console.error('Missing Supabase environment variables');
+  console.error('❌ Missing Supabase environment variables');
   console.error('Please check your .env file contains:');
   console.error('VITE_SUPABASE_URL=your_supabase_project_url');
   console.error('VITE_SUPABASE_ANON_KEY=your_supabase_anon_key');
 }
 
-// Enhanced Supabase client with proper fetch options for WebContainer environments
+// Enhanced Supabase client with WebContainer-safe configuration
 export const supabase = createClient<Database>(
   supabaseUrl || 'https://placeholder.supabase.co',
   supabaseAnonKey || 'placeholder-key',
   {
     auth: {
-      // Enable automatic session persistence
       persistSession: true,
-      // Enable automatic token refresh
       autoRefreshToken: true,
-      // Detect session in URL (for email confirmations)
       detectSessionInUrl: true,
-      // Storage key for session data
       storageKey: 'supabase.auth.token',
-      // Use localStorage for session persistence
       storage: {
         getItem: (key: string) => {
           if (typeof window !== 'undefined') {
@@ -51,15 +47,20 @@ export const supabase = createClient<Database>(
         },
       },
     },
-    // Global configuration with CORS-safe fetch options
     global: {
       headers: {
         'X-Client-Info': 'supabase-js-web',
       },
-      fetch: (url, options) => {
+      // WebContainer-safe fetch configuration
+      fetch: (url, options = {}) => {
         return fetch(url, {
           ...options,
-          credentials: 'same-origin', // Important for WebContainer environments
+          credentials: 'include', // Critical for WebContainer environments
+          mode: 'cors',
+          headers: {
+            ...options.headers,
+            'Accept': 'application/json',
+          },
         });
       },
     },
@@ -329,76 +330,7 @@ export const auth = {
   }
 };
 
-// Optimized getBookmarks function with proper error handling
-export const getBookmarks = async (userId: string) => {
-  try {
-    console.log('🔍 DB: Fetching bookmarks for user:', userId);
-    
-    // Set a timeout for the request to prevent hanging
-    const timeoutPromise = new Promise((_, reject) => 
-      setTimeout(() => reject(new Error('Bookmarks fetch timeout')), 10000)
-    );
-    
-    // Create the actual query promise
-    const queryPromise = supabase
-      .from('bookmarks')
-      .select(`
-        id,
-        user_id,
-        tool_id,
-        created_at,
-        tools (
-          id,
-          name,
-          description,
-          category,
-          pricing,
-          rating,
-          reviews_count,
-          tags,
-          website_url,
-          featured,
-          verified,
-          created_at,
-          updated_at
-        )
-      `)
-      .eq('user_id', userId)
-      .order('created_at', { ascending: false });
-    
-    // Race between the query and timeout
-    const result = await Promise.race([queryPromise, timeoutPromise]) as any;
-    
-    if (result.error) {
-      console.error('❌ DB: Supabase query error:', result.error);
-      throw result.error;
-    }
-    
-    console.log('✅ DB: Bookmarks fetched successfully:', result.data?.length || 0);
-    return result;
-    
-  } catch (err) {
-    console.error('💥 DB: Bookmarks query exception:', err);
-    return { 
-      data: [], 
-      error: err instanceof Error ? err : new Error('Failed to fetch bookmarks from database')
-    };
-  }
-};
-
-// Legacy function for backward compatibility
-export const fetchBookmarks = async (userId: string) => {
-  try {
-    const { data, error } = await getBookmarks(userId);
-    if (error) throw error;
-    return data?.map(bookmark => bookmark.tool_id) || [];
-  } catch (error) {
-    console.error('Database error in fetchBookmarks:', error);
-    throw error;
-  }
-};
-
-// Database helpers with improved error handling
+// Enhanced database functions with proper error handling and UUID validation
 export const db = {
   // Expose the supabase client for direct access
   supabase,
@@ -467,6 +399,15 @@ export const db = {
     try {
       console.log('DB: Getting tool:', id);
       
+      // Validate UUID format for Supabase queries
+      if (!isValidUUID(id)) {
+        console.warn('DB: Invalid UUID format for tool ID:', id);
+        return { 
+          data: null, 
+          error: { message: 'Invalid tool ID format' }
+        };
+      }
+      
       // Set a timeout for the request
       const timeoutPromise = new Promise((_, reject) => 
         setTimeout(() => reject(new Error('Tool query timeout')), 10000)
@@ -534,6 +475,15 @@ export const db = {
   updateTool: async (id: string, updates: Database['public']['Tables']['tools']['Update']) => {
     try {
       console.log('DB: Updating tool:', id);
+      
+      // Validate UUID format for Supabase queries
+      if (!isValidUUID(id)) {
+        console.warn('DB: Invalid UUID format for tool ID:', id);
+        return { 
+          data: null, 
+          error: { message: 'Invalid tool ID format' }
+        };
+      }
       
       // Set a timeout for the request
       const timeoutPromise = new Promise((_, reject) => 
@@ -605,6 +555,15 @@ export const db = {
     try {
       console.log('DB: Getting profile for user:', userId);
       
+      // Validate UUID format for Supabase queries
+      if (!isValidUUID(userId)) {
+        console.warn('DB: Invalid UUID format for user ID:', userId);
+        return { 
+          data: null, 
+          error: { message: 'Invalid user ID format' }
+        };
+      }
+      
       // Set a timeout for the request
       const timeoutPromise = new Promise((_, reject) => 
         setTimeout(() => reject(new Error('Profile query timeout')), 10000)
@@ -639,6 +598,15 @@ export const db = {
     try {
       console.log('DB: Creating profile for user:', profile.id);
       
+      // Validate UUID format for Supabase queries
+      if (!isValidUUID(profile.id)) {
+        console.warn('DB: Invalid UUID format for user ID:', profile.id);
+        return { 
+          data: null, 
+          error: { message: 'Invalid user ID format' }
+        };
+      }
+      
       // Set a timeout for the request
       const timeoutPromise = new Promise((_, reject) => 
         setTimeout(() => reject(new Error('Profile creation timeout')), 10000)
@@ -672,6 +640,15 @@ export const db = {
   updateProfile: async (userId: string, updates: Database['public']['Tables']['profiles']['Update']) => {
     try {
       console.log('DB: Updating profile for user:', userId);
+      
+      // Validate UUID format for Supabase queries
+      if (!isValidUUID(userId)) {
+        console.warn('DB: Invalid UUID format for user ID:', userId);
+        return { 
+          data: null, 
+          error: { message: 'Invalid user ID format' }
+        };
+      }
       
       // Set a timeout for the request
       const timeoutPromise = new Promise((_, reject) => 
@@ -708,6 +685,15 @@ export const db = {
   getBookmarks: async (userId: string) => {
     try {
       console.log('🔍 DB: Fetching bookmarks for user:', userId);
+      
+      // Validate UUID format for Supabase queries
+      if (!isValidUUID(userId)) {
+        console.warn('DB: Invalid UUID format for user ID:', userId);
+        return { 
+          data: [], 
+          error: { message: 'Invalid user ID format' }
+        };
+      }
       
       // Set a timeout for the request
       const timeoutPromise = new Promise((_, reject) => 
@@ -763,6 +749,15 @@ export const db = {
 
   addBookmark: async (userId: string, toolId: string) => {
     try {
+      // Validate UUID format for Supabase queries
+      if (!isValidUUID(userId) || !isValidUUID(toolId)) {
+        console.warn('DB: Invalid UUID format for user ID or tool ID:', { userId, toolId });
+        return { 
+          data: null, 
+          error: { message: 'Invalid ID format' }
+        };
+      }
+      
       // First check if bookmark already exists
       const existingBookmark = await supabase
         .from('bookmarks')
@@ -812,6 +807,15 @@ export const db = {
     try {
       console.log('🗑️ DB: Removing bookmark for user:', userId, 'tool:', toolId);
 
+      // Validate UUID format for Supabase queries
+      if (!isValidUUID(userId) || !isValidUUID(toolId)) {
+        console.warn('DB: Invalid UUID format for user ID or tool ID:', { userId, toolId });
+        return { 
+          data: null, 
+          error: { message: 'Invalid ID format' }
+        };
+      }
+
       const result = await supabase
         .from('bookmarks')
         .delete()
@@ -836,6 +840,12 @@ export const db = {
 
   isBookmarked: async (userId: string, toolId: string) => {
     try {
+      // Validate UUID format for Supabase queries
+      if (!isValidUUID(userId) || !isValidUUID(toolId)) {
+        console.warn('DB: Invalid UUID format for user ID or tool ID:', { userId, toolId });
+        return false;
+      }
+      
       const { data } = await supabase
         .from('bookmarks')
         .select('id')
@@ -854,6 +864,15 @@ export const db = {
   getReviews: async (toolId: string) => {
     try {
       console.log('DB: Getting reviews for tool:', toolId);
+      
+      // Validate UUID format for Supabase queries
+      if (!isValidUUID(toolId)) {
+        console.warn('DB: Invalid UUID format for tool ID:', toolId);
+        return { 
+          data: [], 
+          error: { message: 'Invalid tool ID format' }
+        };
+      }
       
       // Set a timeout for the request
       const timeoutPromise = new Promise((_, reject) => 
@@ -892,6 +911,15 @@ export const db = {
     try {
       console.log('DB: Creating review');
       
+      // Validate UUID format for Supabase queries
+      if (!isValidUUID(review.user_id) || !isValidUUID(review.tool_id)) {
+        console.warn('DB: Invalid UUID format for user ID or tool ID:', { userId: review.user_id, toolId: review.tool_id });
+        return { 
+          data: null, 
+          error: { message: 'Invalid ID format' }
+        };
+      }
+      
       // Set a timeout for the request
       const timeoutPromise = new Promise((_, reject) => 
         setTimeout(() => reject(new Error('Review creation timeout')), 10000)
@@ -925,6 +953,15 @@ export const db = {
   getUserReviews: async (userId: string) => {
     try {
       console.log('DB: Getting reviews for user:', userId);
+      
+      // Validate UUID format for Supabase queries
+      if (!isValidUUID(userId)) {
+        console.warn('DB: Invalid UUID format for user ID:', userId);
+        return { 
+          data: [], 
+          error: { message: 'Invalid user ID format' }
+        };
+      }
       
       // Set a timeout for the request
       const timeoutPromise = new Promise((_, reject) => 
@@ -963,6 +1000,15 @@ export const db = {
     try {
       console.log('DB: Updating review:', reviewId);
       
+      // Validate UUID format for Supabase queries
+      if (!isValidUUID(reviewId)) {
+        console.warn('DB: Invalid UUID format for review ID:', reviewId);
+        return { 
+          data: null, 
+          error: { message: 'Invalid review ID format' }
+        };
+      }
+      
       // Set a timeout for the request
       const timeoutPromise = new Promise((_, reject) => 
         setTimeout(() => reject(new Error('Review update timeout')), 10000)
@@ -998,6 +1044,15 @@ export const db = {
     try {
       console.log('DB: Deleting review:', reviewId);
       
+      // Validate UUID format for Supabase queries
+      if (!isValidUUID(reviewId)) {
+        console.warn('DB: Invalid UUID format for review ID:', reviewId);
+        return { 
+          data: null, 
+          error: { message: 'Invalid review ID format' }
+        };
+      }
+      
       // Set a timeout for the request
       const timeoutPromise = new Promise((_, reject) => 
         setTimeout(() => reject(new Error('Review delete timeout')), 10000)
@@ -1032,6 +1087,15 @@ export const db = {
     try {
       console.log('DB: Getting likes for tool:', toolId);
       
+      // Validate UUID format for Supabase queries
+      if (!isValidUUID(toolId)) {
+        console.warn('DB: Invalid UUID format for tool ID:', toolId);
+        return { 
+          data: [], 
+          error: { message: 'Invalid tool ID format' }
+        };
+      }
+      
       // Set a timeout for the request
       const timeoutPromise = new Promise((_, reject) => 
         setTimeout(() => reject(new Error('Likes query timeout')), 10000)
@@ -1064,6 +1128,28 @@ export const db = {
   getToolLikes: async (toolId: string, userId?: string) => {
     try {
       console.log('DB: Getting tool likes count and user status:', toolId, userId);
+      
+      // Validate UUID format for Supabase queries
+      if (!isValidUUID(toolId)) {
+        console.warn('DB: Invalid UUID format for tool ID:', toolId);
+        return { 
+          data: { like_count: 0, user_liked: false }, 
+          error: { message: 'Invalid tool ID format' }
+        };
+      }
+      
+      if (userId && !isValidUUID(userId)) {
+        console.warn('DB: Invalid UUID format for user ID:', userId);
+        userId = undefined; // Reset to undefined to avoid RPC errors
+      }
+      
+      // For mock data or invalid UUIDs, return mock response
+      if (!isValidUUID(toolId)) {
+        return { 
+          data: { like_count: Math.floor(Math.random() * 100), user_liked: false }, 
+          error: null 
+        };
+      }
       
       // Set a timeout for the request
       const timeoutPromise = new Promise((_, reject) => 
@@ -1105,6 +1191,15 @@ export const db = {
     try {
       console.log('DB: Toggling like for tool:', toolId, 'user:', userId);
       
+      // Validate UUID format for Supabase queries
+      if (!isValidUUID(toolId) || !isValidUUID(userId)) {
+        console.warn('DB: Invalid UUID format for tool ID or user ID:', { toolId, userId });
+        return { 
+          data: null, 
+          error: { message: 'Invalid ID format' }
+        };
+      }
+      
       // Set a timeout for the request
       const timeoutPromise = new Promise((_, reject) => 
         setTimeout(() => reject(new Error('Toggle like timeout')), 10000)
@@ -1144,6 +1239,15 @@ export const db = {
   addLike: async (userId: string, toolId: string) => {
     try {
       console.log('DB: Adding like for tool:', toolId, 'user:', userId);
+      
+      // Validate UUID format for Supabase queries
+      if (!isValidUUID(toolId) || !isValidUUID(userId)) {
+        console.warn('DB: Invalid UUID format for tool ID or user ID:', { toolId, userId });
+        return { 
+          data: null, 
+          error: { message: 'Invalid ID format' }
+        };
+      }
       
       // Check if like already exists
       const existingLike = await supabase
@@ -1194,6 +1298,15 @@ export const db = {
     try {
       console.log('DB: Removing like for tool:', toolId, 'user:', userId);
       
+      // Validate UUID format for Supabase queries
+      if (!isValidUUID(toolId) || !isValidUUID(userId)) {
+        console.warn('DB: Invalid UUID format for tool ID or user ID:', { toolId, userId });
+        return { 
+          data: null, 
+          error: { message: 'Invalid ID format' }
+        };
+      }
+      
       // Set a timeout for the request
       const timeoutPromise = new Promise((_, reject) => 
         setTimeout(() => reject(new Error('Remove like timeout')), 10000)
@@ -1226,6 +1339,12 @@ export const db = {
 
   isLiked: async (userId: string, toolId: string) => {
     try {
+      // Validate UUID format for Supabase queries
+      if (!isValidUUID(toolId) || !isValidUUID(userId)) {
+        console.warn('DB: Invalid UUID format for tool ID or user ID:', { toolId, userId });
+        return false;
+      }
+      
       const { data } = await supabase
         .from('likes')
         .select('id')
@@ -1242,6 +1361,14 @@ export const db = {
 
   clearUserBookmarks: async (userId: string) => {
     try {
+      // Validate UUID format for Supabase queries
+      if (!isValidUUID(userId)) {
+        console.warn('DB: Invalid UUID format for user ID:', userId);
+        return { 
+          error: { message: 'Invalid user ID format' }
+        };
+      }
+      
       const { error } = await supabase
         .from('bookmarks')
         .delete()
