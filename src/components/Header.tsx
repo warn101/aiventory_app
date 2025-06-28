@@ -20,7 +20,7 @@ const Header: React.FC<HeaderProps> = ({
 }) => {
   const [isMenuOpen, setIsMenuOpen] = useState(false);
   const [isProfileMenuOpen, setIsProfileMenuOpen] = useState(false);
-  const { loading } = useAuthStore();
+  const { loading, initialized } = useAuthStore();
 
   const navigationItems = [
     { id: 'home', label: 'Discover', icon: Home },
@@ -70,7 +70,7 @@ const Header: React.FC<HeaderProps> = ({
 
           {/* Actions - Desktop */}
           <div className="hidden md:flex items-center space-x-4">
-            {loading ? (
+            {loading && !initialized ? (
               <div className="h-10 w-24 bg-gray-200 rounded-lg animate-pulse"></div>
             ) : currentUser ? (
               <div className="relative">
@@ -186,7 +186,7 @@ const Header: React.FC<HeaderProps> = ({
               ))}
               
               <div className="pt-4 border-t border-gray-200">
-                {loading ? (
+                {loading && !initialized ? (
                   <div className="h-10 w-full bg-gray-200 rounded-lg animate-pulse"></div>
                 ) : currentUser ? (
                   <div className="space-y-2">

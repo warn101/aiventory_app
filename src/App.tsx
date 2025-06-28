@@ -18,8 +18,7 @@ import Profile from './pages/Profile';
 import SubmitTool from './pages/SubmitTool';
 
 import { FilterState, Tool, User as AppUser } from './types';
-import { useAuthContext } from './contexts/AuthContext';
-import { useTools } from './hooks/useTools';
+import { useAuthStore } from './store/authStore';
 import { useCategories } from './hooks/useCategories';
 import { Database } from './types/database';
 import { db } from './lib/supabase';
@@ -27,8 +26,8 @@ import { db } from './lib/supabase';
 type Page = 'home' | 'tool-detail' | 'dashboard' | 'profile' | 'submit-tool';
 
 export default function App() {
-  const { user: authUser, loading: authLoading, signOut } = useAuthContext();
-  const { tools, filteredTools, loading: toolsLoading, loadTools, getTool, createTool } = useTools();
+  const { user: authUser, loading: authLoading, signOut } = useAuthStore();
+  const { tools, filteredTools, loading: toolsLoading, loadTools, getTool, createTool } = useCategories();
   const { categories } = useCategories();
 
   const [currentPage, setCurrentPage] = useState<Page>('home');
