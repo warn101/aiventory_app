@@ -4,9 +4,10 @@ import { Database } from '../types/database';
 const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
 const supabaseAnonKey = import.meta.env.VITE_SUPABASE_ANON_KEY;
 
+// Improved logging for environment variables
 console.log('Supabase Config:', {
-  url: supabaseUrl ? 'Set' : 'Missing',
-  key: supabaseAnonKey ? 'Set' : 'Missing'
+  url: supabaseUrl ? `Set (${supabaseUrl.substring(0, 10)}...)` : 'Missing',
+  key: supabaseAnonKey ? 'Set (key hidden for security)' : 'Missing'
 });
 
 if (!supabaseUrl || !supabaseAnonKey) {
@@ -16,6 +17,7 @@ if (!supabaseUrl || !supabaseAnonKey) {
   console.error('VITE_SUPABASE_ANON_KEY=your_supabase_anon_key');
 }
 
+// Enhanced Supabase client with proper fetch options for WebContainer environments
 export const supabase = createClient<Database>(
   supabaseUrl || 'https://placeholder.supabase.co',
   supabaseAnonKey || 'placeholder-key',
@@ -49,26 +51,41 @@ export const supabase = createClient<Database>(
         },
       },
     },
-    // Global configuration
+    // Global configuration with CORS-safe fetch options
     global: {
       headers: {
         'X-Client-Info': 'supabase-js-web',
+      },
+      fetch: (url, options) => {
+        return fetch(url, {
+          ...options,
+          credentials: 'same-origin', // Important for WebContainer environments
+        });
       },
     },
   }
 );
 
-// Test connection with better error handling
+// Test connection with better error handling and timeout
 (async () => {
   try {
-    const { count, error } = await supabase.from('tools').select('count', { count: 'exact', head: true });
+    // Set a timeout for the connection test
+    const timeoutPromise = new Promise((_, reject) => 
+      setTimeout(() => reject(new Error('Connection test timeout')), 5000)
+    );
+    
+    const connectionPromise = supabase.from('tools').select('count', { count: 'exact', head: true });
+    
+    // Race between the connection test and timeout
+    const { count, error } = await Promise.race([connectionPromise, timeoutPromise]) as any;
+    
     if (error) {
-      console.warn('Supabase connection test failed:', error.message);
+      console.warn('⚠️ Supabase connection test failed:', error.message);
     } else {
-      console.log('Supabase connected successfully. Tools count:', count);
+      console.log('✅ Supabase connected successfully. Tools count:', count);
     }
   } catch (err) {
-    console.warn('Supabase connection test error:', (err as Error).message);
+    console.warn('⚠️ Supabase connection test error:', (err as Error).message);
   }
 })();
 
@@ -293,37 +310,6 @@ export const auth = {
     }
   },
 
-  // Development utility for manual session clearing
-  devClearAllAuth: async () => {
-    if (process.env.NODE_ENV !== 'development') {
-      console.warn('Auth: devClearAllAuth is only available in development mode');
-      return;
-    }
-    
-    console.log('Auth: [DEV] Manually clearing all authentication data...');
-    
-    try {
-      // Sign out from Supabase
-      await supabase.auth.signOut();
-      
-      // Clear all storage
-      await auth.clearAllAuthStorage();
-      
-      // Clear all localStorage and sessionStorage (nuclear option)
-      localStorage.clear();
-      sessionStorage.clear();
-      
-      console.log('Auth: [DEV] All authentication data cleared. Reload the page.');
-      
-      // Optionally reload the page
-      if (typeof window !== 'undefined') {
-        window.location.reload();
-      }
-    } catch (err) {
-      console.error('Auth: [DEV] Error during manual clear:', err);
-    }
-  },
-
   verifyOtp: async (params: { token_hash: string; type: string }) => {
     try {
       console.log('Auth: Verifying OTP token');
@@ -343,13 +329,18 @@ export const auth = {
   }
 };
 
-// Optimized bookmark functions with performance improvements
+// Optimized getBookmarks function with proper error handling
 export const getBookmarks = async (userId: string) => {
   try {
     console.log('🔍 DB: Fetching bookmarks for user:', userId);
     
-    // Directly fetch bookmarks without redundant auth checks
-    const result = await supabase
+    // Set a timeout for the request to prevent hanging
+    const timeoutPromise = new Promise((_, reject) => 
+      setTimeout(() => reject(new Error('Bookmarks fetch timeout')), 10000)
+    );
+    
+    // Create the actual query promise
+    const queryPromise = supabase
       .from('bookmarks')
       .select(`
         id,
@@ -374,6 +365,9 @@ export const getBookmarks = async (userId: string) => {
       `)
       .eq('user_id', userId)
       .order('created_at', { ascending: false });
+    
+    // Race between the query and timeout
+    const result = await Promise.race([queryPromise, timeoutPromise]) as any;
     
     if (result.error) {
       console.error('❌ DB: Supabase query error:', result.error);
@@ -446,9 +440,18 @@ export const db = {
         query = query.or(`name.ilike.%${filters.search}%,description.ilike.%${filters.search}%`);
       }
 
-      const result = await query;
+      // Set a timeout for the request
+      const timeoutPromise = new Promise((_, reject) => 
+        setTimeout(() => reject(new Error('Tools query timeout')), 10000)
+      );
       
-
+      // Race between the query and timeout
+      const result = await Promise.race([query, timeoutPromise]) as any;
+      
+      if (result.error) {
+        console.error('DB: Tools query error:', result.error);
+        throw result.error;
+      }
       
       return result;
     } catch (err) {
@@ -463,13 +466,26 @@ export const db = {
   getTool: async (id: string) => {
     try {
       console.log('DB: Getting tool:', id);
-      const result = await supabase
+      
+      // Set a timeout for the request
+      const timeoutPromise = new Promise((_, reject) => 
+        setTimeout(() => reject(new Error('Tool query timeout')), 10000)
+      );
+      
+      // Create the actual query promise
+      const queryPromise = supabase
         .from('tools')
         .select('*')
         .eq('id', id)
         .single();
-        
-
+      
+      // Race between the query and timeout
+      const result = await Promise.race([queryPromise, timeoutPromise]) as any;
+      
+      if (result.error) {
+        console.error('DB: Tool query error:', result.error);
+        throw result.error;
+      }
       
       return result;
     } catch (err) {
@@ -484,18 +500,25 @@ export const db = {
   createTool: async (tool: Database['public']['Tables']['tools']['Insert']) => {
     try {
       console.log('DB: Creating tool with data:', tool);
-      console.log('DB: Current user session:', await supabase.auth.getSession());
       
-      const result = await supabase
+      // Set a timeout for the request
+      const timeoutPromise = new Promise((_, reject) => 
+        setTimeout(() => reject(new Error('Tool creation timeout')), 10000)
+      );
+      
+      // Create the actual query promise
+      const queryPromise = supabase
         .from('tools')
         .insert([tool])
         .select()
         .single();
-        
-
+      
+      // Race between the query and timeout
+      const result = await Promise.race([queryPromise, timeoutPromise]) as any;
       
       if (result.error) {
         console.error('DB: Detailed error:', result.error);
+        throw result.error;
       }
       
       return result;
@@ -511,14 +534,27 @@ export const db = {
   updateTool: async (id: string, updates: Database['public']['Tables']['tools']['Update']) => {
     try {
       console.log('DB: Updating tool:', id);
-      const result = await supabase
+      
+      // Set a timeout for the request
+      const timeoutPromise = new Promise((_, reject) => 
+        setTimeout(() => reject(new Error('Tool update timeout')), 10000)
+      );
+      
+      // Create the actual query promise
+      const queryPromise = supabase
         .from('tools')
         .update(updates)
         .eq('id', id)
         .select()
         .single();
-        
-
+      
+      // Race between the query and timeout
+      const result = await Promise.race([queryPromise, timeoutPromise]) as any;
+      
+      if (result.error) {
+        console.error('DB: Tool update error:', result.error);
+        throw result.error;
+      }
       
       return result;
     } catch (err) {
@@ -534,12 +570,25 @@ export const db = {
   getCategories: async () => {
     try {
       console.log('DB: Getting categories');
-      const result = await supabase
+      
+      // Set a timeout for the request
+      const timeoutPromise = new Promise((_, reject) => 
+        setTimeout(() => reject(new Error('Categories query timeout')), 10000)
+      );
+      
+      // Create the actual query promise
+      const queryPromise = supabase
         .from('categories')
         .select('*')
         .order('name');
-        
-
+      
+      // Race between the query and timeout
+      const result = await Promise.race([queryPromise, timeoutPromise]) as any;
+      
+      if (result.error) {
+        console.error('DB: Categories query error:', result.error);
+        throw result.error;
+      }
       
       return result;
     } catch (err) {
@@ -555,13 +604,26 @@ export const db = {
   getProfile: async (userId: string) => {
     try {
       console.log('DB: Getting profile for user:', userId);
-      const result = await supabase
+      
+      // Set a timeout for the request
+      const timeoutPromise = new Promise((_, reject) => 
+        setTimeout(() => reject(new Error('Profile query timeout')), 10000)
+      );
+      
+      // Create the actual query promise
+      const queryPromise = supabase
         .from('profiles')
         .select('*')
         .eq('id', userId)
         .single();
-        
-
+      
+      // Race between the query and timeout
+      const result = await Promise.race([queryPromise, timeoutPromise]) as any;
+      
+      if (result.error) {
+        console.error('DB: Profile query error:', result.error);
+        throw result.error;
+      }
       
       return result;
     } catch (err) {
@@ -576,13 +638,26 @@ export const db = {
   createProfile: async (profile: Database['public']['Tables']['profiles']['Insert']) => {
     try {
       console.log('DB: Creating profile for user:', profile.id);
-      const result = await supabase
+      
+      // Set a timeout for the request
+      const timeoutPromise = new Promise((_, reject) => 
+        setTimeout(() => reject(new Error('Profile creation timeout')), 10000)
+      );
+      
+      // Create the actual query promise
+      const queryPromise = supabase
         .from('profiles')
         .insert([profile])
         .select()
         .single();
-        
-
+      
+      // Race between the query and timeout
+      const result = await Promise.race([queryPromise, timeoutPromise]) as any;
+      
+      if (result.error) {
+        console.error('DB: Profile creation error:', result.error);
+        throw result.error;
+      }
       
       return result;
     } catch (err) {
@@ -597,14 +672,27 @@ export const db = {
   updateProfile: async (userId: string, updates: Database['public']['Tables']['profiles']['Update']) => {
     try {
       console.log('DB: Updating profile for user:', userId);
-      const result = await supabase
+      
+      // Set a timeout for the request
+      const timeoutPromise = new Promise((_, reject) => 
+        setTimeout(() => reject(new Error('Profile update timeout')), 10000)
+      );
+      
+      // Create the actual query promise
+      const queryPromise = supabase
         .from('profiles')
         .update(updates)
         .eq('id', userId)
         .select()
         .single();
-        
-
+      
+      // Race between the query and timeout
+      const result = await Promise.race([queryPromise, timeoutPromise]) as any;
+      
+      if (result.error) {
+        console.error('DB: Profile update error:', result.error);
+        throw result.error;
+      }
       
       return result;
     } catch (err) {
@@ -621,8 +709,13 @@ export const db = {
     try {
       console.log('🔍 DB: Fetching bookmarks for user:', userId);
       
-      // Directly fetch bookmarks without redundant auth checks
-      const result = await supabase
+      // Set a timeout for the request
+      const timeoutPromise = new Promise((_, reject) => 
+        setTimeout(() => reject(new Error('Bookmarks fetch timeout')), 10000)
+      );
+      
+      // Create the actual query promise
+      const queryPromise = supabase
         .from('bookmarks')
         .select(`
           id,
@@ -648,6 +741,9 @@ export const db = {
         .eq('user_id', userId)
         .order('created_at', { ascending: false });
       
+      // Race between the query and timeout
+      const result = await Promise.race([queryPromise, timeoutPromise]) as any;
+      
       if (result.error) {
         console.error('❌ DB: Supabase query error:', result.error);
         throw result.error;
@@ -667,14 +763,6 @@ export const db = {
 
   addBookmark: async (userId: string, toolId: string) => {
     try {
-      // Check auth state
-      const { data: { session }, error: sessionError } = await supabase.auth.getSession();
-      
-      if (sessionError || !session) {
-        console.error('❌ DB: User not authenticated:', sessionError);
-        return { data: [], error: new Error('User not authenticated') };
-      }
-      
       // First check if bookmark already exists
       const existingBookmark = await supabase
         .from('bookmarks')
@@ -692,7 +780,6 @@ export const db = {
         };
       }
       
-
       // Use upsert to handle race conditions
       const result = await supabase
         .from('bookmarks')
@@ -701,8 +788,6 @@ export const db = {
           ignoreDuplicates: false
         })
         .select();
-        
-
       
       // Check for silent failures
       if (!result.error && (!result.data || result.data.length === 0)) {
@@ -727,14 +812,6 @@ export const db = {
     try {
       console.log('🗑️ DB: Removing bookmark for user:', userId, 'tool:', toolId);
 
-      // Check auth state
-      const { data: { session }, error: sessionError } = await supabase.auth.getSession();
-      
-      if (sessionError || !session) {
-        console.error('❌ DB: User not authenticated:', sessionError);
-        return { data: [], error: new Error('User not authenticated') };
-      }
-
       const result = await supabase
         .from('bookmarks')
         .delete()
@@ -746,7 +823,7 @@ export const db = {
         throw result.error;
       }
       
-      console.log('✅ DB: Bookmark removed successfully:', result.data);
+      console.log('✅ DB: Bookmark removed successfully');
       return result;
     } catch (err) {
       console.error('💥 DB: Bookmark remove exception:', err);
@@ -777,7 +854,14 @@ export const db = {
   getReviews: async (toolId: string) => {
     try {
       console.log('DB: Getting reviews for tool:', toolId);
-      const result = await supabase
+      
+      // Set a timeout for the request
+      const timeoutPromise = new Promise((_, reject) => 
+        setTimeout(() => reject(new Error('Reviews query timeout')), 10000)
+      );
+      
+      // Create the actual query promise
+      const queryPromise = supabase
         .from('reviews')
         .select(`
           *,
@@ -785,8 +869,14 @@ export const db = {
         `)
         .eq('tool_id', toolId)
         .order('created_at', { ascending: false });
-        
-
+      
+      // Race between the query and timeout
+      const result = await Promise.race([queryPromise, timeoutPromise]) as any;
+      
+      if (result.error) {
+        console.error('DB: Reviews query error:', result.error);
+        throw result.error;
+      }
       
       return result;
     } catch (err) {
@@ -801,13 +891,26 @@ export const db = {
   createReview: async (review: Database['public']['Tables']['reviews']['Insert']) => {
     try {
       console.log('DB: Creating review');
-      const result = await supabase
+      
+      // Set a timeout for the request
+      const timeoutPromise = new Promise((_, reject) => 
+        setTimeout(() => reject(new Error('Review creation timeout')), 10000)
+      );
+      
+      // Create the actual query promise
+      const queryPromise = supabase
         .from('reviews')
         .insert([review])
         .select()
         .single();
-        
-
+      
+      // Race between the query and timeout
+      const result = await Promise.race([queryPromise, timeoutPromise]) as any;
+      
+      if (result.error) {
+        console.error('DB: Review creation error:', result.error);
+        throw result.error;
+      }
       
       return result;
     } catch (err) {
@@ -823,15 +926,13 @@ export const db = {
     try {
       console.log('DB: Getting reviews for user:', userId);
       
-      // Check auth state
-      const { data: { session }, error: sessionError } = await supabase.auth.getSession();
+      // Set a timeout for the request
+      const timeoutPromise = new Promise((_, reject) => 
+        setTimeout(() => reject(new Error('User reviews query timeout')), 10000)
+      );
       
-      if (sessionError || !session) {
-        console.error('❌ DB: User not authenticated:', sessionError);
-        return { data: [], error: new Error('User not authenticated') };
-      }
-      
-      const result = await supabase
+      // Create the actual query promise
+      const queryPromise = supabase
         .from('reviews')
         .select(`
           *,
@@ -839,8 +940,14 @@ export const db = {
         `)
         .eq('user_id', userId)
         .order('created_at', { ascending: false });
-        
-
+      
+      // Race between the query and timeout
+      const result = await Promise.race([queryPromise, timeoutPromise]) as any;
+      
+      if (result.error) {
+        console.error('DB: User reviews query error:', result.error);
+        throw result.error;
+      }
       
       return result;
     } catch (err) {
@@ -855,13 +962,28 @@ export const db = {
   updateReview: async (reviewId: string, updates: Database['public']['Tables']['reviews']['Update']) => {
     try {
       console.log('DB: Updating review:', reviewId);
-      const result = await supabase
+      
+      // Set a timeout for the request
+      const timeoutPromise = new Promise((_, reject) => 
+        setTimeout(() => reject(new Error('Review update timeout')), 10000)
+      );
+      
+      // Create the actual query promise
+      const queryPromise = supabase
         .from('reviews')
         .update(updates)
         .eq('id', reviewId)
         .select()
         .single();
-        
+      
+      // Race between the query and timeout
+      const result = await Promise.race([queryPromise, timeoutPromise]) as any;
+      
+      if (result.error) {
+        console.error('DB: Review update error:', result.error);
+        throw result.error;
+      }
+      
       return result;
     } catch (err) {
       console.error('DB: Review update exception:', err);
@@ -875,11 +997,26 @@ export const db = {
   deleteReview: async (reviewId: string) => {
     try {
       console.log('DB: Deleting review:', reviewId);
-      const result = await supabase
+      
+      // Set a timeout for the request
+      const timeoutPromise = new Promise((_, reject) => 
+        setTimeout(() => reject(new Error('Review delete timeout')), 10000)
+      );
+      
+      // Create the actual query promise
+      const queryPromise = supabase
         .from('reviews')
         .delete()
         .eq('id', reviewId);
-        
+      
+      // Race between the query and timeout
+      const result = await Promise.race([queryPromise, timeoutPromise]) as any;
+      
+      if (result.error) {
+        console.error('DB: Review delete error:', result.error);
+        throw result.error;
+      }
+      
       return result;
     } catch (err) {
       console.error('DB: Review delete exception:', err);
@@ -894,11 +1031,26 @@ export const db = {
   getLikes: async (toolId: string) => {
     try {
       console.log('DB: Getting likes for tool:', toolId);
-      const result = await supabase
+      
+      // Set a timeout for the request
+      const timeoutPromise = new Promise((_, reject) => 
+        setTimeout(() => reject(new Error('Likes query timeout')), 10000)
+      );
+      
+      // Create the actual query promise
+      const queryPromise = supabase
         .from('likes')
         .select('*')
         .eq('tool_id', toolId);
-        
+      
+      // Race between the query and timeout
+      const result = await Promise.race([queryPromise, timeoutPromise]) as any;
+      
+      if (result.error) {
+        console.error('DB: Likes query error:', result.error);
+        throw result.error;
+      }
+      
       return result;
     } catch (err) {
       console.error('DB: Likes query exception:', err);
@@ -913,36 +1065,31 @@ export const db = {
     try {
       console.log('DB: Getting tool likes count and user status:', toolId, userId);
       
-      // Check auth state for user-specific queries
-      if (userId) {
-        const { data: { session }, error: sessionError } = await supabase.auth.getSession();
-        
-        if (sessionError || !session) {
-          console.error('❌ DB: User not authenticated for likes query:', sessionError);
-          // Return default data instead of error for better UX
-          return { 
-            data: { like_count: 0, user_liked: false }, 
-            error: null
-          };
-        }
-      }
+      // Set a timeout for the request
+      const timeoutPromise = new Promise((_, reject) => 
+        setTimeout(() => reject(new Error('Tool likes query timeout')), 10000)
+      );
       
-      const { data, error } = await supabase
+      // Create the actual query promise
+      const queryPromise = supabase
         .rpc('get_tool_likes', {
           tool_uuid: toolId,
           user_uuid: userId || null
         });
-        
-      if (error) {
-        console.error('DB: Tool likes RPC error:', error);
+      
+      // Race between the query and timeout
+      const result = await Promise.race([queryPromise, timeoutPromise]) as any;
+      
+      if (result.error) {
+        console.error('DB: Tool likes RPC error:', result.error);
         return { 
           data: { like_count: 0, user_liked: false }, 
-          error 
+          error: result.error
         };
       }
       
       return { 
-        data: data || { like_count: 0, user_liked: false }, 
+        data: result.data || { like_count: 0, user_liked: false }, 
         error: null 
       };
     } catch (err) {
@@ -958,33 +1105,31 @@ export const db = {
     try {
       console.log('DB: Toggling like for tool:', toolId, 'user:', userId);
       
-      // Check auth state
-      const { data: { session }, error: sessionError } = await supabase.auth.getSession();
+      // Set a timeout for the request
+      const timeoutPromise = new Promise((_, reject) => 
+        setTimeout(() => reject(new Error('Toggle like timeout')), 10000)
+      );
       
-      if (sessionError || !session) {
-        console.error('❌ DB: User not authenticated for toggle like:', sessionError);
-        return { 
-          data: null, 
-          error: new Error('User not authenticated') 
-        };
-      }
-      
-      const { data, error } = await supabase
+      // Create the actual query promise
+      const queryPromise = supabase
         .rpc('toggle_like', {
           tool_uuid: toolId,
           user_uuid: userId
         });
-        
-      if (error) {
-        console.error('DB: Toggle like RPC error:', error);
+      
+      // Race between the query and timeout
+      const result = await Promise.race([queryPromise, timeoutPromise]) as any;
+      
+      if (result.error) {
+        console.error('DB: Toggle like RPC error:', result.error);
         return { 
           data: null, 
-          error 
+          error: result.error
         };
       }
       
       return { 
-        data: data || { like_count: 0, user_liked: false }, 
+        data: result.data || { like_count: 0, user_liked: false }, 
         error: null 
       };
     } catch (err) {
@@ -999,17 +1144,6 @@ export const db = {
   addLike: async (userId: string, toolId: string) => {
     try {
       console.log('DB: Adding like for tool:', toolId, 'user:', userId);
-      
-      // Check auth state
-      const { data: { session }, error: sessionError } = await supabase.auth.getSession();
-      
-      if (sessionError || !session) {
-        console.error('❌ DB: User not authenticated for add like:', sessionError);
-        return { 
-          data: null, 
-          error: new Error('User not authenticated') 
-        };
-      }
       
       // Check if like already exists
       const existingLike = await supabase
@@ -1027,11 +1161,25 @@ export const db = {
         };
       }
       
-      const result = await supabase
+      // Set a timeout for the request
+      const timeoutPromise = new Promise((_, reject) => 
+        setTimeout(() => reject(new Error('Add like timeout')), 10000)
+      );
+      
+      // Create the actual query promise
+      const queryPromise = supabase
         .from('likes')
         .insert([{ user_id: userId, tool_id: toolId }])
         .select();
-        
+      
+      // Race between the query and timeout
+      const result = await Promise.race([queryPromise, timeoutPromise]) as any;
+      
+      if (result.error) {
+        console.error('DB: Like add error:', result.error);
+        throw result.error;
+      }
+      
       return result;
     } catch (err) {
       console.error('DB: Like add exception:', err);
@@ -1046,23 +1194,26 @@ export const db = {
     try {
       console.log('DB: Removing like for tool:', toolId, 'user:', userId);
       
-      // Check auth state
-      const { data: { session }, error: sessionError } = await supabase.auth.getSession();
+      // Set a timeout for the request
+      const timeoutPromise = new Promise((_, reject) => 
+        setTimeout(() => reject(new Error('Remove like timeout')), 10000)
+      );
       
-      if (sessionError || !session) {
-        console.error('❌ DB: User not authenticated for remove like:', sessionError);
-        return { 
-          data: null, 
-          error: new Error('User not authenticated') 
-        };
-      }
-      
-      const result = await supabase
+      // Create the actual query promise
+      const queryPromise = supabase
         .from('likes')
         .delete()
         .eq('user_id', userId)
         .eq('tool_id', toolId);
-        
+      
+      // Race between the query and timeout
+      const result = await Promise.race([queryPromise, timeoutPromise]) as any;
+      
+      if (result.error) {
+        console.error('DB: Like remove error:', result.error);
+        throw result.error;
+      }
+      
       return result;
     } catch (err) {
       console.error('DB: Like remove exception:', err);
@@ -1091,14 +1242,6 @@ export const db = {
 
   clearUserBookmarks: async (userId: string) => {
     try {
-      // Check auth state
-      const { data: { session }, error: sessionError } = await supabase.auth.getSession();
-      
-      if (sessionError || !session) {
-        console.error('❌ DB: User not authenticated for clear bookmarks:', sessionError);
-        return { error: new Error('User not authenticated') };
-      }
-      
       const { error } = await supabase
         .from('bookmarks')
         .delete()
